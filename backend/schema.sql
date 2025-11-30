@@ -37,4 +37,14 @@ CREATE TABLE IF NOT EXISTS user_show_reservations (
   PRIMARY KEY (user_id, show_id)
 );
 
+-- Songs table
+CREATE TABLE IF NOT EXISTS songs (
+  id SERIAL PRIMARY KEY,
+  album_id INT NOT NULL REFERENCES albums(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  duration TEXT NOT NULL,
+  track_number INT NOT NULL,
+  UNIQUE (album_id, track_number)
+);
+
 

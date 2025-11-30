@@ -22,4 +22,21 @@ INSERT INTO albums (title, year, cover_image) VALUES
   ('AMAO', 2025, 'b6968f9d-a967-4ec7-b907-1bcdd8c25a9b.jpg')
 ON CONFLICT DO NOTHING;
 
+-- Songs for AMAO album (album_id = 1)
+INSERT INTO songs (album_id, title, duration, track_number) VALUES
+  (1, 'THE SPECTATOR', '4:30', 1),
+  (1, 'THE CAVE', '6:21', 2),
+  (1, 'INDULGENCE', '9:01', 3),
+  (1, 'STRINGS', '3:56', 4),
+  (1, 'PILATE''S COURT', '11:37', 5),
+  (1, 'GETHSEMANE', '3:00', 6),
+  (1, 'OUROBOROS', '6:56', 7),
+  (1, 'DELIRIUM', '8:02', 8),
+  (1, 'SAMSARA', '7:31', 9),
+  (1, 'INFERNIAC', '6:20', 10),
+  (1, 'MYALGIC ENCEPHALOMYELITIS', '2:24', 11),
+  (1, 'SATORI', '3:04', 12),
+  (1, 'AMAO', '13:00', 13)
+ON CONFLICT (album_id, track_number) DO NOTHING;
+
 

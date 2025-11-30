@@ -662,6 +662,51 @@ h1 {
   box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.5);
 }
 
+/* Songs List */
+.songs-list {
+  margin-top: 3rem;
+  text-align: left;
+  width: 100%;
+  max-width: 800px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.song-item {
+  display: flex;
+  align-items: center;
+  padding: 0.8rem 0;
+  border-bottom: 1px solid rgba(63, 130, 157, 0.1);
+  font-size: 1.1rem;
+  letter-spacing: 1.5px;
+}
+
+.song-item:last-child {
+  border-bottom: none;
+}
+
+.song-number {
+  color: rgba(63, 130, 157, 0.8);
+  margin-right: 0.8rem;
+  font-weight: 600;
+  min-width: 40px;
+}
+
+.song-title {
+  color: #e0e0e0;
+  text-transform: uppercase;
+  font-weight: 500;
+  flex: 1;
+}
+
+.song-duration {
+  color: rgba(176, 176, 176, 0.5);
+  font-size: 0.7rem;
+  margin-left: auto;
+  font-weight: 300;
+  letter-spacing: 0.5px;
+}
+
 /* Merch Section */
 .merch-grid {
   display: grid;

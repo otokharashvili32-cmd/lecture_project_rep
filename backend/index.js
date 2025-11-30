@@ -15,6 +15,100 @@ app.get('/', (req, res) => {
   res.json({ message: 'Backend server is running!' });
 });
 
+// Test endpoint to check if songs table exists
+app.get('/api/test-songs', async (req, res) => {
+  try {
+    // Get current database name and all tables
+    const dbName = await db.query('SELECT current_database()');
+    const allTables = await db.query(`
+      SELECT table_schema, table_name 
+      FROM information_schema.tables 
+      WHERE table_schema = 'public'
+      ORDER BY table_name;
+    `);
+    
+    // Check if songs table exists
+    const tableCheck = await db.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'public' 
+        AND table_name = 'songs'
+      );
+    `);
+    
+    // Try to count songs
+    let songCount = null;
+    let error = null;
+    try {
+      const countResult = await db.query('SELECT COUNT(*) FROM songs');
+      songCount = countResult.rows[0].count;
+    } catch (e) {
+      error = e.message;
+    }
+    
+    res.json({
+      database: dbName.rows[0].current_database,
+      allTables: allTables.rows,
+      tableExists: tableCheck.rows[0].exists,
+      songCount: songCount,
+      error: error,
+      connectionString: process.env.DATABASE_URL ? 'SET' : 'NOT SET'
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// CREATE SONGS TABLE ENDPOINT - This will create the table in the exact database the backend uses
+app.post('/api/create-songs-table', async (req, res) => {
+  try {
+    // Create the table
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS songs (
+        id SERIAL PRIMARY KEY,
+        album_id INT NOT NULL REFERENCES albums(id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        duration TEXT NOT NULL,
+        track_number INT NOT NULL,
+        UNIQUE (album_id, track_number)
+      );
+    `);
+    
+    // Insert the songs
+    await db.query(`
+      INSERT INTO songs (album_id, title, duration, track_number) VALUES
+        (1, 'THE SPECTATOR', '4:30', 1),
+        (1, 'THE CAVE', '6:21', 2),
+        (1, 'INDULGENCE', '9:01', 3),
+        (1, 'STRINGS', '3:56', 4),
+        (1, 'PILATE''S COURT', '11:37', 5),
+        (1, 'GETHSEMANE', '3:00', 6),
+        (1, 'OUROBOROS', '6:56', 7),
+        (1, 'DELIRIUM', '8:02', 8),
+        (1, 'SAMSARA', '7:31', 9),
+        (1, 'INFERNIAC', '6:20', 10),
+        (1, 'MYALGIC ENCEPHALOMYELITIS', '2:24', 11),
+        (1, 'SATORI', '3:04', 12),
+        (1, 'AMAO', '13:00', 13)
+      ON CONFLICT (album_id, track_number) DO NOTHING;
+    `);
+    
+    // Verify
+    const countResult = await db.query('SELECT COUNT(*) FROM songs');
+    
+    res.json({
+      success: true,
+      message: 'Songs table created and populated',
+      songCount: countResult.rows[0].count
+    });
+  } catch (err) {
+    res.status(500).json({ 
+      success: false,
+      error: err.message 
+    });
+  }
+});
+
 // API routes
 
 // Users (expose non-sensitive info)
@@ -66,6 +160,28 @@ app.get('/api/discography', async (req, res) => {
   } catch (error) {
     console.error('Error fetching discography:', error);
     res.status(500).json({ error: 'failed to load discography' });
+  }
+});
+
+// Songs
+app.get('/api/songs', async (req, res) => {
+  try {
+    const albumId = req.query.albumId;
+    let query, params;
+    
+    if (albumId) {
+      query = 'SELECT id, album_id AS "albumId", title, duration, track_number AS "trackNumber" FROM songs WHERE album_id = $1 ORDER BY track_number ASC';
+      params = [albumId];
+    } else {
+      query = 'SELECT id, album_id AS "albumId", title, duration, track_number AS "trackNumber" FROM songs ORDER BY album_id ASC, track_number ASC';
+      params = [];
+    }
+    
+    const result = await db.query(query, params);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching songs:', error);
+    res.status(500).json({ error: 'failed to load songs' });
   }
 });
 

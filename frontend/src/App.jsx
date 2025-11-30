@@ -13,6 +13,7 @@ function App() {
   const [shows, setShows] = useState([]);
   const [merchItems, setMerchItems] = useState([]);
   const [albums, setAlbums] = useState([]);
+  const [songs, setSongs] = useState([]);
   const [dataError, setDataError] = useState('');
   const [currentUser, setCurrentUser] = useState(null);
   const [reservedShowIds, setReservedShowIds] = useState([]);
@@ -133,6 +134,13 @@ function App() {
         setMerchItems(merchData || []);
         setAlbums(discsData || []);
 
+        // Load songs for the first album (AMAO)
+        if (discsData && discsData.length > 0) {
+          const songsRes = await fetch(`/api/songs?albumId=${discsData[0].id}`);
+          const songsData = await songsRes.json();
+          setSongs(songsData || []);
+        }
+
         // Load reservations for the logged-in user
         if (isLoggedIn && currentUser?.id) {
           const resRes = await fetch(`/api/reservations?userId=${currentUser.id}`);
@@ -149,6 +157,15 @@ function App() {
 
     loadData();
   }, [showMainPage, isLoggedIn, currentUser]);
+
+  // Helper function to convert number to Roman numeral
+  const toRomanNumeral = (num) => {
+    const romanNumerals = [
+      '', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X',
+      'XI', 'XII', 'XIII', 'XIV', 'XV', 'XVI', 'XVII', 'XVIII', 'XIX', 'XX'
+    ];
+    return romanNumerals[num] || num.toString();
+  };
 
   const handleReserveShow = async (showId) => {
     if (!isLoggedIn || !currentUser?.id) {
@@ -254,6 +271,17 @@ function App() {
                       alt={`${albums[0].title} Album Cover`}
                       className="album-art"
                     />
+                    {songs.length > 0 && (
+                      <div className="songs-list">
+                        {songs.map((song) => (
+                          <div key={song.id} className="song-item">
+                            <span className="song-number">{toRomanNumeral(song.trackNumber)})</span>
+                            <span className="song-title">{song.title}</span>
+                            <span className="song-duration">({song.duration})</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </>
                 ) : (
                   <div className="album-art-placeholder">
