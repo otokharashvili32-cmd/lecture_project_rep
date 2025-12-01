@@ -11,10 +11,19 @@ INSERT INTO shows (date, city, venue) VALUES
 ON CONFLICT DO NOTHING;
 
 -- Initial merch
-INSERT INTO merch (name, price) VALUES
-  ('T-Shirt', 35),
-  ('Vinyl', 95),
-  ('Guitar', 1999)
+INSERT INTO merch (name, price, type, variant) VALUES
+  -- Shirts
+  ('Blue Shirt', 30, 'shirt', 'blue'),
+  ('Black Shirt', 35, 'shirt', 'black'),
+  ('Red Shirt', 35, 'shirt', 'red'),
+  -- Guitars
+  ('Custom Fender Stratocaster', 1400, 'guitar', 'Custom Fender Stratocaster'),
+  ('Custom Fender Telecaster', 1500, 'guitar', 'Custom Fender Telecaster'),
+  ('Custom Gibson Les Paul', 1999, 'guitar', 'Custom Gibson Les Paul'),
+  -- Vinyls
+  ('AMAO VINYL', 95, 'vinyl', 'AMAO'),
+  ('AMAO disk 2 VINYL', 95, 'vinyl', 'AMAO disk 2'),
+  ('AMAO live at Bassiani VINYL', 68, 'vinyl', 'AMAO live at Bassiani')
 ON CONFLICT DO NOTHING;
 
 -- Initial album

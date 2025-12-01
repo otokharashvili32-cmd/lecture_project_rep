@@ -186,7 +186,7 @@ This document outlines all planned features and tasks for the THE SPECTATOR webs
 
 ### Task 3: Show Availability Counter
 **Priority:** High  
-**Status:** Not Started
+**Status:** Completed
 
 **Requirements:**
 - Display availability for each show:
@@ -212,7 +212,7 @@ This document outlines all planned features and tasks for the THE SPECTATOR webs
 
 ### Task 4: Buying System for Shows
 **Priority:** High  
-**Status:** Not Started
+**Status:** Completed
 
 **Requirements:**
 - Add "Get" button on each show
@@ -246,7 +246,7 @@ This document outlines all planned features and tasks for the THE SPECTATOR webs
 
 ### Task 1: Search Bar
 **Priority:** Medium  
-**Status:** Not Started
+**Status:** Completed
 
 **Requirements:**
 - Add search bar to Merch page
@@ -271,7 +271,7 @@ This document outlines all planned features and tasks for the THE SPECTATOR webs
 
 ### Task 3: Expand Merch Items
 **Priority:** High  
-**Status:** Not Started
+**Status:** Completed
 
 **Requirements:**
 - Currently: 3 shirts, 3 vinyls, 3 guitars
@@ -303,27 +303,27 @@ This document outlines all planned features and tasks for the THE SPECTATOR webs
 
 ### Task 4: Update Prices and Sort Options
 **Priority:** High  
-**Status:** Not Started
+**Status:** Completed
 
 **Requirements:**
 - Update prices:
-  - Blue shirt: $30
-  - Custom Fender Stratocaster: $1400
-  - AMAO live at Bassiani: $68
+  - Blue shirt: $30 ✓
+  - Custom Fender Stratocaster: $1400 ✓
+  - AMAO live at Bassiani: $68 ✓
 - Add sort dropdown/filter:
-  - Sort by: Price (low → high)
+  - Sort by: Price (low → high) ✓
 
 **Database Requirements:**
-- Update `price` column in `merch` table for specific items
+- Update `price` column in `merch` table for specific items ✓
 
 **Implementation Notes:**
-- Frontend sorting or backend endpoint for sorted results
+- Frontend sorting or backend endpoint for sorted results ✓
 
 ---
 
 ### Task 5: Add to Wishlist
 **Priority:** Medium  
-**Status:** Not Started
+**Status:** Completed
 
 **Requirements:**
 - If user is logged in, show star icon on each merch item
@@ -346,7 +346,7 @@ This document outlines all planned features and tasks for the THE SPECTATOR webs
 
 ### Task 6: Show Availability Counter
 **Priority:** High  
-**Status:** Not Started
+**Status:** Completed
 
 **Requirements:**
 - Display availability for each merch item:
@@ -372,7 +372,7 @@ This document outlines all planned features and tasks for the THE SPECTATOR webs
 
 ### Task 7: Buying System for Merch
 **Priority:** High  
-**Status:** Not Started
+**Status:** Completed
 
 **Requirements:**
 - Add "Get" button on each merch item
@@ -404,7 +404,7 @@ This document outlines all planned features and tasks for the THE SPECTATOR webs
 
 ### Task 8: Discount Codes
 **Priority:** Medium  
-**Status:** Not Started
+**Status:** Completed
 
 **Requirements:**
 - Add "Promo Code" input bar in merch page
@@ -431,7 +431,7 @@ This document outlines all planned features and tasks for the THE SPECTATOR webs
 
 ### Task 1: Scroll to Top Button
 **Priority:** Low  
-**Status:** Not Started
+**Status:** Completed
 
 **Requirements:**
 - Add small arrow button that appears when user scrolls down
@@ -447,7 +447,7 @@ This document outlines all planned features and tasks for the THE SPECTATOR webs
 
 ### Task 2: Animated Loading Screen
 **Priority:** Low  
-**Status:** Not Started
+**Status:** Completed
 
 **Requirements:**
 - Show loading spinner or AMAO logo while pages load
@@ -462,7 +462,7 @@ This document outlines all planned features and tasks for the THE SPECTATOR webs
 
 ### Task 3: Settings Icon
 **Priority:** Medium  
-**Status:** Not Started
+**Status:** Completed
 
 **Requirements:**
 - Add settings icon in top right corner
@@ -476,7 +476,7 @@ This document outlines all planned features and tasks for the THE SPECTATOR webs
 
 ### Task 4: Light Mode / Dark Mode Toggle
 **Priority:** High  
-**Status:** Not Started
+**Status:** Completed
 
 **Requirements:**
 - In settings, add switch for Light Mode/Dark Mode
@@ -505,7 +505,7 @@ This document outlines all planned features and tasks for the THE SPECTATOR webs
 
 ### Task 1: Sign Out
 **Priority:** High  
-**Status:** Not Started
+**Status:** Completed
 
 **Requirements:**
 - Add "Sign Out" button/option
@@ -521,7 +521,7 @@ This document outlines all planned features and tasks for the THE SPECTATOR webs
 
 ### Task 2: Profile Editing - Username
 **Priority:** Medium  
-**Status:** Not Started
+**Status:** Completed
 
 **Requirements:**
 - When clicking profile icon, show options:
@@ -561,7 +561,7 @@ This document outlines all planned features and tasks for the THE SPECTATOR webs
 
 ### Task 3: Delete Account Button
 **Priority:** Medium  
-**Status:** Not Started
+**Status:** Completed
 
 **Requirements:**
 - Add "Delete Account" button in account settings
@@ -590,7 +590,7 @@ This document outlines all planned features and tasks for the THE SPECTATOR webs
 
 ### Task 4: Show/Hide Password
 **Priority:** Low  
-**Status:** Not Started
+**Status:** Completed
 
 **Requirements:**
 - Add eye icon in login/signup password fields
@@ -610,7 +610,7 @@ This document outlines all planned features and tasks for the THE SPECTATOR webs
 
 ### Task 1: Visitor Counter
 **Priority:** Low  
-**Status:** Not Started
+**Status:** Completed
 
 **Requirements:**
 - Add small visitor counter under "THE SPECTATOR" text
