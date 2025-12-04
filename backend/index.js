@@ -2,6 +2,15 @@ const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
 const db = require('./db');
+const cloudinary = require('cloudinary').v2;
+const multer = require('multer');
+const crypto = require('crypto');
+
+// Configure Cloudinary using CLOUDINARY_URL from .env
+cloudinary.config({ cloudinary_url: process.env.CLOUDINARY_URL });
+
+// Configure multer to store files in memory (buffer) for Cloudinary upload
+const upload = multer({ storage: multer.memoryStorage() });
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -13,6 +22,38 @@ app.use(express.json());
 // Basic routes
 app.get('/', (req, res) => {
   res.json({ message: 'Backend server is running!' });
+});
+
+// Simple image upload route using Cloudinary
+// Expects a form-data request with a single file field named "image"
+app.post('/api/upload-image', upload.single('image'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: 'No file uploaded' });
+    }
+
+    // Upload the file buffer to Cloudinary
+    const result = await new Promise((resolve, reject) => {
+      const stream = cloudinary.uploader.upload_stream(
+        { folder: 'the-spectator' },
+        (error, uploadedResult) => {
+          if (error) return reject(error);
+          resolve(uploadedResult);
+        }
+      );
+
+      stream.end(req.file.buffer);
+    });
+
+    return res.json({
+      success: true,
+      url: result.secure_url,
+      public_id: result.public_id,
+    });
+  } catch (error) {
+    console.error('Cloudinary upload error:', error);
+    return res.status(500).json({ success: false, error: 'Upload failed' });
+  }
 });
 
 // Test endpoint to check if songs table exists
@@ -278,29 +319,10 @@ app.post('/api/shows/:showId/purchase', async (req, res) => {
       });
     }
 
-    // Check if user already purchased this show
-    const existingPurchase = await db.query(
-      'SELECT * FROM user_show_purchases WHERE user_id = $1 AND show_id = $2',
-      [userId, showId]
-    );
-
-    if (existingPurchase.rows.length > 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'you have already purchased a ticket for this show',
-      });
-    }
-
     // Decrease available seats by quantity
     await db.query(
       'UPDATE shows SET available_seats = available_seats - $1 WHERE id = $2',
       [ticketQuantity, showId]
-    );
-
-    // Record the purchase in database
-    await db.query(
-      'INSERT INTO user_show_purchases (user_id, show_id) VALUES ($1, $2) ON CONFLICT (user_id, show_id) DO NOTHING',
-      [userId, showId]
     );
 
     return res.json({ success: true });
@@ -388,6 +410,307 @@ app.get('/api/shows', async (req, res) => {
   } catch (error) {
     console.error('Error fetching shows:', error);
     res.status(500).json({ error: 'failed to load shows' });
+  }
+});
+
+// Helper: check if a user is admin
+async function isAdminUser(userId) {
+  if (!userId) return false;
+  try {
+    const result = await db.query(
+      'SELECT role FROM users WHERE id = $1',
+      [userId]
+    );
+    if (result.rows.length === 0) return false;
+    return result.rows[0].role === 'admin';
+  } catch (error) {
+    console.error('Error checking admin user:', error);
+    return false;
+  }
+}
+
+// Admin: create a new show
+app.post('/api/admin/shows', async (req, res) => {
+  const { userId, date, city, venue, price, availableSeats } = req.body || {};
+
+  if (!userId) {
+    return res.status(400).json({ success: false, error: 'userId is required' });
+  }
+
+  if (!date || !city) {
+    return res.status(400).json({ success: false, error: 'date and city are required' });
+  }
+
+  try {
+    const isAdmin = await isAdminUser(userId);
+    if (!isAdmin) {
+      return res.status(403).json({ success: false, error: 'not authorized' });
+    }
+
+    const result = await db.query(
+      `INSERT INTO shows (date, city, venue, price, available_seats)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, date, city, venue, price, available_seats AS "availableSeats"`,
+      [date, city, venue || null, price || null, availableSeats != null ? availableSeats : 30]
+    );
+
+    res.status(201).json({ success: true, show: result.rows[0] });
+  } catch (error) {
+    console.error('Error creating show:', error);
+    res.status(500).json({ success: false, error: 'failed to create show' });
+  }
+});
+
+// Admin: update an existing show (name/city/venue/price/date/available seats)
+app.put('/api/admin/shows/:showId', async (req, res) => {
+  const showId = parseInt(req.params.showId, 10);
+  const { userId, date, city, venue, price, availableSeats } = req.body || {};
+
+  if (!userId) {
+    return res.status(400).json({ success: false, error: 'userId is required' });
+  }
+
+  if (!showId) {
+    return res.status(400).json({ success: false, error: 'showId is required' });
+  }
+
+  try {
+    const isAdmin = await isAdminUser(userId);
+    if (!isAdmin) {
+      return res.status(403).json({ success: false, error: 'not authorized' });
+    }
+
+    // Build dynamic UPDATE query based on provided fields
+    const fields = [];
+    const values = [];
+    let idx = 1;
+
+    if (date !== undefined) {
+      fields.push(`date = $${idx++}`);
+      values.push(date);
+    }
+    if (city !== undefined) {
+      fields.push(`city = $${idx++}`);
+      values.push(city);
+    }
+    if (venue !== undefined) {
+      fields.push(`venue = $${idx++}`);
+      values.push(venue);
+    }
+    if (price !== undefined) {
+      fields.push(`price = $${idx++}`);
+      values.push(price);
+    }
+    if (availableSeats !== undefined) {
+      fields.push(`available_seats = $${idx++}`);
+      values.push(availableSeats);
+    }
+
+    if (fields.length === 0) {
+      return res.status(400).json({ success: false, error: 'no fields to update' });
+    }
+
+    values.push(showId);
+
+    const query = `
+      UPDATE shows
+      SET ${fields.join(', ')}
+      WHERE id = $${idx}
+      RETURNING id, date, city, venue, price, available_seats AS "availableSeats"
+    `;
+
+    const result = await db.query(query, values);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'show not found' });
+    }
+
+    res.json({ success: true, show: result.rows[0] });
+  } catch (error) {
+    console.error('Error updating show:', error);
+    res.status(500).json({ success: false, error: 'failed to update show' });
+  }
+});
+
+// Admin: delete a show
+app.delete('/api/admin/shows/:showId', async (req, res) => {
+  const showId = parseInt(req.params.showId, 10);
+  const { userId } = req.body || {};
+
+  if (!userId) {
+    return res.status(400).json({ success: false, error: 'userId is required' });
+  }
+
+  if (!showId) {
+    return res.status(400).json({ success: false, error: 'showId is required' });
+  }
+
+  try {
+    const isAdmin = await isAdminUser(userId);
+    if (!isAdmin) {
+      return res.status(403).json({ success: false, error: 'not authorized' });
+    }
+
+    const result = await db.query(
+      'DELETE FROM shows WHERE id = $1 RETURNING id',
+      [showId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'show not found' });
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting show:', error);
+    res.status(500).json({ success: false, error: 'failed to delete show' });
+  }
+});
+
+// =========================
+// ADMIN: MERCH MANAGEMENT
+// =========================
+
+// Admin: create a new merch item
+app.post('/api/admin/merch', async (req, res) => {
+  const { userId, name, price, type, variant, availableQuantity } = req.body || {};
+
+  if (!userId) {
+    return res.status(400).json({ success: false, error: 'userId is required' });
+  }
+
+  if (!name || price == null) {
+    return res.status(400).json({ success: false, error: 'name and price are required' });
+  }
+
+  try {
+    const isAdmin = await isAdminUser(userId);
+    if (!isAdmin) {
+      return res.status(403).json({ success: false, error: 'not authorized' });
+    }
+
+    const result = await db.query(
+      `INSERT INTO merch (name, price, type, variant, available_quantity)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, name, price, type, variant, available_quantity AS "availableQuantity"`,
+      [
+        name,
+        price,
+        type || null,
+        variant || null,
+        availableQuantity != null ? availableQuantity : 20,
+      ]
+    );
+
+    res.status(201).json({ success: true, merch: result.rows[0] });
+  } catch (error) {
+    console.error('Error creating merch item:', error);
+    res.status(500).json({ success: false, error: 'failed to create merch item' });
+  }
+});
+
+// Admin: update an existing merch item
+app.put('/api/admin/merch/:merchId', async (req, res) => {
+  const merchId = parseInt(req.params.merchId, 10);
+  const { userId, name, price, type, variant, availableQuantity } = req.body || {};
+
+  if (!userId) {
+    return res.status(400).json({ success: false, error: 'userId is required' });
+  }
+
+  if (!merchId) {
+    return res.status(400).json({ success: false, error: 'merchId is required' });
+  }
+
+  try {
+    const isAdmin = await isAdminUser(userId);
+    if (!isAdmin) {
+      return res.status(403).json({ success: false, error: 'not authorized' });
+    }
+
+    const fields = [];
+    const values = [];
+    let idx = 1;
+
+    if (name !== undefined) {
+      fields.push(`name = $${idx++}`);
+      values.push(name);
+    }
+    if (price !== undefined) {
+      fields.push(`price = $${idx++}`);
+      values.push(price);
+    }
+    if (type !== undefined) {
+      fields.push(`type = $${idx++}`);
+      values.push(type);
+    }
+    if (variant !== undefined) {
+      fields.push(`variant = $${idx++}`);
+      values.push(variant);
+    }
+    if (availableQuantity !== undefined) {
+      fields.push(`available_quantity = $${idx++}`);
+      values.push(availableQuantity);
+    }
+
+    if (fields.length === 0) {
+      return res.status(400).json({ success: false, error: 'no fields to update' });
+    }
+
+    values.push(merchId);
+
+    const query = `
+      UPDATE merch
+      SET ${fields.join(', ')}
+      WHERE id = $${idx}
+      RETURNING id, name, price, type, variant, available_quantity AS "availableQuantity"
+    `;
+
+    const result = await db.query(query, values);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'merch item not found' });
+    }
+
+    res.json({ success: true, merch: result.rows[0] });
+  } catch (error) {
+    console.error('Error updating merch item:', error);
+    res.status(500).json({ success: false, error: 'failed to update merch item' });
+  }
+});
+
+// Admin: delete a merch item
+app.delete('/api/admin/merch/:merchId', async (req, res) => {
+  const merchId = parseInt(req.params.merchId, 10);
+  const { userId } = req.body || {};
+
+  if (!userId) {
+    return res.status(400).json({ success: false, error: 'userId is required' });
+  }
+
+  if (!merchId) {
+    return res.status(400).json({ success: false, error: 'merchId is required' });
+  }
+
+  try {
+    const isAdmin = await isAdminUser(userId);
+    if (!isAdmin) {
+      return res.status(403).json({ success: false, error: 'not authorized' });
+    }
+
+    const result = await db.query(
+      'DELETE FROM merch WHERE id = $1 RETURNING id',
+      [merchId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'merch item not found' });
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting merch item:', error);
+    res.status(500).json({ success: false, error: 'failed to delete merch item' });
   }
 });
 
@@ -743,6 +1066,139 @@ app.get('/api/discography', async (req, res) => {
   }
 });
 
+// =========================
+// ADMIN: ALBUM MANAGEMENT
+// =========================
+
+// Admin: create a new album
+app.post('/api/admin/albums', async (req, res) => {
+  const { userId, title, year, coverImage } = req.body || {};
+
+  if (!userId) {
+    return res.status(400).json({ success: false, error: 'userId is required' });
+  }
+
+  if (!title) {
+    return res.status(400).json({ success: false, error: 'title is required' });
+  }
+
+  try {
+    const isAdmin = await isAdminUser(userId);
+    if (!isAdmin) {
+      return res.status(403).json({ success: false, error: 'not authorized' });
+    }
+
+    const result = await db.query(
+      `INSERT INTO albums (title, year, cover_image)
+       VALUES ($1, $2, $3)
+       RETURNING id, title, year, cover_image AS "coverImage"`,
+      [title, year || null, coverImage || null]
+    );
+
+    res.status(201).json({ success: true, album: result.rows[0] });
+  } catch (error) {
+    console.error('Error creating album:', error);
+    res.status(500).json({ success: false, error: 'failed to create album' });
+  }
+});
+
+// Admin: update an album
+app.put('/api/admin/albums/:albumId', async (req, res) => {
+  const albumId = parseInt(req.params.albumId, 10);
+  const { userId, title, year, coverImage } = req.body || {};
+
+  if (!userId) {
+    return res.status(400).json({ success: false, error: 'userId is required' });
+  }
+
+  if (!albumId) {
+    return res.status(400).json({ success: false, error: 'albumId is required' });
+  }
+
+  try {
+    const isAdmin = await isAdminUser(userId);
+    if (!isAdmin) {
+      return res.status(403).json({ success: false, error: 'not authorized' });
+    }
+
+    const fields = [];
+    const values = [];
+    let idx = 1;
+
+    if (title !== undefined) {
+      fields.push(`title = $${idx++}`);
+      values.push(title);
+    }
+    if (year !== undefined) {
+      fields.push(`year = $${idx++}`);
+      values.push(year);
+    }
+    if (coverImage !== undefined) {
+      fields.push(`cover_image = $${idx++}`);
+      values.push(coverImage);
+    }
+
+    if (fields.length === 0) {
+      return res.status(400).json({ success: false, error: 'no fields to update' });
+    }
+
+    values.push(albumId);
+
+    const query = `
+      UPDATE albums
+      SET ${fields.join(', ')}
+      WHERE id = $${idx}
+      RETURNING id, title, year, cover_image AS "coverImage"
+    `;
+
+    const result = await db.query(query, values);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'album not found' });
+    }
+
+    res.json({ success: true, album: result.rows[0] });
+  } catch (error) {
+    console.error('Error updating album:', error);
+    res.status(500).json({ success: false, error: 'failed to update album' });
+  }
+});
+
+// Admin: delete an album (will cascade delete songs)
+app.delete('/api/admin/albums/:albumId', async (req, res) => {
+  const albumId = parseInt(req.params.albumId, 10);
+  const { userId } = req.body || {};
+
+  if (!userId) {
+    return res.status(400).json({ success: false, error: 'userId is required' });
+  }
+
+  if (!albumId) {
+    return res.status(400).json({ success: false, error: 'albumId is required' });
+  }
+
+  try {
+    const isAdmin = await isAdminUser(userId);
+    if (!isAdmin) {
+      return res.status(403).json({ success: false, error: 'not authorized' });
+    }
+
+    const result = await db.query(
+      'DELETE FROM albums WHERE id = $1 RETURNING id',
+      [albumId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'album not found' });
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting album:', error);
+    res.status(500).json({ success: false, error: 'failed to delete album' });
+  }
+});
+
 // Songs
 app.get('/api/songs', async (req, res) => {
   try {
@@ -762,6 +1218,146 @@ app.get('/api/songs', async (req, res) => {
   } catch (error) {
     console.error('Error fetching songs:', error);
     res.status(500).json({ error: 'failed to load songs' });
+  }
+});
+
+// =========================
+// ADMIN: SONG MANAGEMENT
+// =========================
+
+// Admin: create a new song
+app.post('/api/admin/songs', async (req, res) => {
+  const { userId, albumId, title, duration, trackNumber } = req.body || {};
+
+  if (!userId) {
+    return res.status(400).json({ success: false, error: 'userId is required' });
+  }
+
+  if (!albumId || !title || !duration || trackNumber == null) {
+    return res.status(400).json({
+      success: false,
+      error: 'albumId, title, duration, and trackNumber are required',
+    });
+  }
+
+  try {
+    const isAdmin = await isAdminUser(userId);
+    if (!isAdmin) {
+      return res.status(403).json({ success: false, error: 'not authorized' });
+    }
+
+    const result = await db.query(
+      `INSERT INTO songs (album_id, title, duration, track_number)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, album_id AS "albumId", title, duration, track_number AS "trackNumber"`,
+      [albumId, title, duration, trackNumber]
+    );
+
+    res.status(201).json({ success: true, song: result.rows[0] });
+  } catch (error) {
+    console.error('Error creating song:', error);
+    res.status(500).json({ success: false, error: 'failed to create song' });
+  }
+});
+
+// Admin: update an existing song
+app.put('/api/admin/songs/:songId', async (req, res) => {
+  const songId = parseInt(req.params.songId, 10);
+  const { userId, albumId, title, duration, trackNumber } = req.body || {};
+
+  if (!userId) {
+    return res.status(400).json({ success: false, error: 'userId is required' });
+  }
+
+  if (!songId) {
+    return res.status(400).json({ success: false, error: 'songId is required' });
+  }
+
+  try {
+    const isAdmin = await isAdminUser(userId);
+    if (!isAdmin) {
+      return res.status(403).json({ success: false, error: 'not authorized' });
+    }
+
+    const fields = [];
+    const values = [];
+    let idx = 1;
+
+    if (albumId !== undefined) {
+      fields.push(`album_id = $${idx++}`);
+      values.push(albumId);
+    }
+    if (title !== undefined) {
+      fields.push(`title = $${idx++}`);
+      values.push(title);
+    }
+    if (duration !== undefined) {
+      fields.push(`duration = $${idx++}`);
+      values.push(duration);
+    }
+    if (trackNumber !== undefined) {
+      fields.push(`track_number = $${idx++}`);
+      values.push(trackNumber);
+    }
+
+    if (fields.length === 0) {
+      return res.status(400).json({ success: false, error: 'no fields to update' });
+    }
+
+    values.push(songId);
+
+    const query = `
+      UPDATE songs
+      SET ${fields.join(', ')}
+      WHERE id = $${idx}
+      RETURNING id, album_id AS "albumId", title, duration, track_number AS "trackNumber"
+    `;
+
+    const result = await db.query(query, values);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'song not found' });
+    }
+
+    res.json({ success: true, song: result.rows[0] });
+  } catch (error) {
+    console.error('Error updating song:', error);
+    res.status(500).json({ success: false, error: 'failed to update song' });
+  }
+});
+
+// Admin: delete a song
+app.delete('/api/admin/songs/:songId', async (req, res) => {
+  const songId = parseInt(req.params.songId, 10);
+  const { userId } = req.body || {};
+
+  if (!userId) {
+    return res.status(400).json({ success: false, error: 'userId is required' });
+  }
+
+  if (!songId) {
+    return res.status(400).json({ success: false, error: 'songId is required' });
+  }
+
+  try {
+    const isAdmin = await isAdminUser(userId);
+    if (!isAdmin) {
+      return res.status(403).json({ success: false, error: 'not authorized' });
+    }
+
+    const result = await db.query(
+      'DELETE FROM songs WHERE id = $1 RETURNING id',
+      [songId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'song not found' });
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting song:', error);
+    res.status(500).json({ success: false, error: 'failed to delete song' });
   }
 });
 
@@ -1118,7 +1714,7 @@ app.post('/api/login', async (req, res) => {
 
   try {
       const result = await db.query(
-        'SELECT id, email, password, theme_preference, username FROM users WHERE LOWER(TRIM(email)) = $1 LIMIT 1',
+        'SELECT id, email, password, theme_preference, username, role FROM users WHERE LOWER(TRIM(email)) = $1 LIMIT 1',
         [normalizedEmail]
       );
 
@@ -1193,7 +1789,9 @@ app.post('/api/signup', (req, res) => {
       }
 
       const insert = await db.query(
-        'INSERT INTO users (email, password, theme_preference) VALUES ($1, $2, $3) RETURNING id, email, created_at, theme_preference, username',
+        `INSERT INTO users (email, password, theme_preference, role) 
+         VALUES ($1, $2, $3, 'user') 
+         RETURNING id, email, created_at, theme_preference, username, role`,
         [normalizedEmail, password, 'dark']
       );
 
@@ -1212,6 +1810,29 @@ app.post('/api/signup', (req, res) => {
       });
     }
   })();
+});
+
+// ADD ROLE COLUMN TO USERS TABLE ENDPOINT
+// This makes it possible to distinguish normal users from admins.
+app.post('/api/add-role-column', async (req, res) => {
+  try {
+    await db.query(`
+      ALTER TABLE users 
+      ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin'));
+    `);
+
+    // Ensure all existing users have a role set
+    await db.query(`
+      UPDATE users
+      SET role = 'user'
+      WHERE role IS NULL;
+    `);
+
+    res.json({ success: true, message: 'role column added/ensured on users table' });
+  } catch (error) {
+    console.error('Error adding role column:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 // ADD THEME_PREFERENCE COLUMN TO USERS TABLE ENDPOINT
@@ -1246,6 +1867,48 @@ app.post('/api/add-username-column', async (req, res) => {
     res.json({ success: true, message: 'Username column added to users table' });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// CREATE OR UPDATE A SPECIFIC ADMIN USER
+// This will ensure there is a user with the given email/password and role 'admin'.
+app.post('/api/create-admin-user', async (req, res) => {
+  const { email, password } = req.body || {};
+
+  if (!email || !password) {
+    return res.status(400).json({
+      success: false,
+      error: 'email and password are required',
+    });
+  }
+
+  const normalizedEmail = String(email).trim().toLowerCase();
+
+  try {
+    // Insert or update the admin user
+    const result = await db.query(
+      `INSERT INTO users (email, password, theme_preference, role)
+       VALUES ($1, $2, 'dark', 'admin')
+       ON CONFLICT (email) DO UPDATE
+         SET password = EXCLUDED.password,
+             role = 'admin'
+       RETURNING id, email, created_at, theme_preference, username, role`,
+      [normalizedEmail, password]
+    );
+
+    const adminUser = result.rows[0];
+    adminUser.theme_preference = adminUser.theme_preference || 'dark';
+
+    res.json({
+      success: true,
+      user: adminUser,
+    });
+  } catch (error) {
+    console.error('Error creating admin user:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
   }
 });
 

@@ -200,6 +200,8 @@ function App() {
     // The main page will automatically show content without user-specific features
   };
 
+  const isAdmin = isLoggedIn && currentUser?.role === 'admin';
+
   const handleDeleteAccount = async () => {
     if (!isLoggedIn || !currentUser?.id) {
       return;
@@ -243,6 +245,12 @@ function App() {
     setShowProfileMenu(!showProfileMenu);
     setShowUsernameInput(false);
     setUsernameInput('');
+  };
+
+  const handleOpenPurchases = () => {
+    setActiveSection('purchases');
+    setShowProfileMenu(false);
+    setDataError('');
   };
 
   const handleAddUsername = () => {
@@ -403,27 +411,29 @@ function App() {
         setMerchItems(merchData || []);
         setAlbums(discsData || []);
 
-        // Load songs for the first album (AMAO)
+        // Load songs for all albums so we can render multiple album blocks
         if (discsData && discsData.length > 0) {
-          const songsRes = await fetch(`/api/songs?albumId=${discsData[0].id}`);
+          const songsRes = await fetch('/api/songs');
           const songsData = await songsRes.json();
           setSongs(songsData || []);
 
           // Load average ratings for all songs
           if (songsData && songsData.length > 0) {
-            const averagePromises = songsData.map(song =>
-              fetch(`/api/songs/${song.id}/rating-average`).then(res => res.json()).then(data => ({ songId: song.id, ...data }))
+            const averagePromises = songsData.map((song) =>
+              fetch(`/api/songs/${song.id}/rating-average`)
+                .then((res) => res.json())
+                .then((data) => ({ songId: song.id, ...data }))
             );
             const averages = await Promise.all(averagePromises);
             const averagesMap = {};
-            averages.forEach(avg => {
+            averages.forEach((avg) => {
               averagesMap[avg.songId] = { average: avg.average, count: avg.count };
             });
             setSongAverages(averagesMap);
           }
         }
 
-        // Load reservations for the logged-in user
+        // Load reservations and user-specific data for the logged-in user
         if (isLoggedIn && currentUser?.id) {
           const resRes = await fetch(`/api/reservations?userId=${currentUser.id}`);
           const resData = await resRes.json();
@@ -681,7 +691,7 @@ function App() {
     const quantity = ticketQuantity;
 
     if (quantity < 1 || quantity > 4) {
-      setDataError('please select between 1 and 4 tickets');
+      setDataError('please select between 1 and 4');
       return;
     }
 
@@ -946,6 +956,12 @@ function App() {
                         )}
                         <button
                           className="profile-menu-item"
+                          onClick={handleOpenPurchases}
+                        >
+                          My purchases
+                        </button>
+                        <button
+                          className="profile-menu-item"
                           onClick={handleSignOut}
                         >
                           Sign Out
@@ -1014,6 +1030,64 @@ function App() {
           {activeSection === 'shows' && (
             <div className="content-section">
               <h2 className="section-title">Upcoming Shows</h2>
+              {isAdmin && (
+                <div className="admin-form">
+                  <h3 className="admin-subtitle">Admin: Add new show</h3>
+                  <form
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+                      const formData = new FormData(e.target);
+                      const date = formData.get('date');
+                      const city = formData.get('city');
+                      const venue = formData.get('venue');
+                      const price = formData.get('price');
+                      const availableSeats = formData.get('availableSeats');
+
+                      if (!date || !city) {
+                        alert('Date and city are required');
+                        return;
+                      }
+
+                      try {
+                        const res = await fetch('/api/admin/shows', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            userId: currentUser?.id,
+                            date,
+                            city,
+                            venue,
+                            price: price ? parseFloat(price) : null,
+                            availableSeats: availableSeats ? parseInt(availableSeats, 10) : null,
+                          }),
+                        });
+                        const data = await res.json();
+                        if (!data.success) {
+                          alert(data.error || 'Could not create show');
+                          return;
+                        }
+                        const showsRes = await fetch('/api/shows');
+                        const showsData = await showsRes.json();
+                        setShows(showsData || []);
+                        e.target.reset();
+                      } catch (error) {
+                        console.error('Error creating show:', error);
+                        alert('Error creating show');
+                      }
+                    }}
+                    className="admin-show-form"
+                  >
+                    <input name="date" type="date" className="input-field admin-input" placeholder="Date" />
+                    <input name="city" type="text" className="input-field admin-input" placeholder="City" />
+                    <input name="venue" type="text" className="input-field admin-input" placeholder="Venue (optional)" />
+                    <input name="price" type="number" step="0.01" className="input-field admin-input" placeholder="Price (optional)" />
+                    <input name="availableSeats" type="number" className="input-field admin-input" placeholder="Available seats (optional)" />
+                    <button type="submit" className="btn-primary" style={{ padding: '0.6rem 1.2rem', marginTop: '0.5rem' }}>
+                      Add show
+                    </button>
+                  </form>
+                </div>
+              )}
               <div className="shows-controls">
                 <div className="search-bar-container">
                   <input
@@ -1056,70 +1130,194 @@ function App() {
                       return new Date(a.date) - new Date(b.date);
                     }
                   })
-                  .map((show) => (
-                  <div
-                    key={show.id}
-                    className={`show-item ${
-                      reservedShowIds.includes(show.id) ? 'reserved' : ''
-                    } ${purchasedShowIds.includes(show.id) ? 'purchased' : ''}`}
-                  >
-      <div>
-                      <div className="show-date">
-                        {show.date ? new Date(show.date).toISOString().split('T')[0] : show.date}
-                      </div>
-                      <div className="show-city">
-                        {show.city}{show.venue ? ` — ${show.venue}` : ''}
-                      </div>
-                      {show.price && (
-                        <div className="show-price">${parseFloat(show.price).toFixed(2)}</div>
-                      )}
-                      <div className="show-availability">
-                        {show.availableSeats !== undefined && show.availableSeats !== null ? (
-                          show.availableSeats > 0 ? (
-                            <span className="seats-available">{show.availableSeats} seats left</span>
-                          ) : (
-                            <span className="sold-out">Sold out</span>
-                          )
-                        ) : null}
-                      </div>
-                    </div>
-                    {isLoggedIn && (
-                      <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                        {show.availableSeats > 0 && !purchasedShowIds.includes(show.id) && (
-                          <button
-                            type="button"
-                            className={`reserve-button ${
-                              reservedShowIds.includes(show.id) ? 'reserved' : ''
-                            }`}
-                            onClick={() => handleReserveShow(show.id)}
-                          >
-                            {reservedShowIds.includes(show.id)
-                              ? 'Reserved'
-                              : 'Reserve ticket'}
-                          </button>
+                  .map((show) => {
+                    // Optional image for shows based on city
+                    let showImageUrl = null;
+                    if (show.city === 'Berlin') {
+                      showImageUrl = 'https://res.cloudinary.com/dui2htda9/image/upload/v1764679233/Museumsinsel_Berlin_Juli_2021_1__cropped__b_a14q3i.jpg';
+                    } else if (show.city === 'Paris') {
+                      showImageUrl = 'https://res.cloudinary.com/dui2htda9/image/upload/v1764679304/La_Tour_Eiffel_vue_de_la_Tour_Saint-Jacques__Paris_ao%C3%BBt_2014__2.jpg_pevt9m.webp';
+                    } else if (show.city === 'London') {
+                      showImageUrl = 'https://res.cloudinary.com/dui2htda9/image/upload/v1764679493/images_e6mbo7.jpg';
+                    } else if (show.city === 'Kutaisi') {
+                      showImageUrl = 'https://res.cloudinary.com/dui2htda9/image/upload/v1764679302/kutaisi_uzacwj.jpg';
+                    } else if (show.city === 'Tbilisi') {
+                      showImageUrl = 'https://res.cloudinary.com/dui2htda9/image/upload/v1764679303/merlin_138493119_dc17f17f-96a2-4487-a9ea-214914926374-articleLarge_venfii.webp';
+                    }
+
+                    return (
+                      <div
+                        key={show.id}
+                        className={`show-item ${
+                          reservedShowIds.includes(show.id) ? 'reserved' : ''
+                        } ${purchasedShowIds.includes(show.id) ? 'purchased' : ''}`}
+                      >
+                        {showImageUrl && (
+                          <img
+                            src={showImageUrl}
+                            alt={show.city}
+                            className="show-image"
+                          />
                         )}
-                        <button
-                          type="button"
-                          className={`get-button ${
-                            purchasedShowIds.includes(show.id) ? 'going' : ''
-                          }`}
-                          onClick={() => {
-                            if (!purchasedShowIds.includes(show.id)) {
-                              handlePurchaseShow(show.id);
-                            }
-                          }}
-                          disabled={show.availableSeats <= 0 && !purchasedShowIds.includes(show.id)}
-                        >
-                          {purchasedShowIds.includes(show.id)
-                            ? 'Going'
-                            : show.availableSeats <= 0
-                            ? 'Sold out'
-                            : 'Get'}
-                        </button>
+                        <div className="show-info">
+                          <div className="show-date">
+                            {show.date ? new Date(show.date).toISOString().split('T')[0] : show.date}
+                          </div>
+                          <div className="show-city">
+                            {show.city}{show.venue ? ` — ${show.venue}` : ''}
+                          </div>
+                          {show.price && (
+                            <div className="show-price">${parseFloat(show.price).toFixed(2)}</div>
+                          )}
+                          <div className="show-availability">
+                            {show.availableSeats !== undefined && show.availableSeats !== null ? (
+                              show.availableSeats > 0 ? (
+                                <span className="seats-available">{show.availableSeats} seats left</span>
+                              ) : (
+                                <span className="sold-out">Sold out</span>
+                              )
+                            ) : null}
+                          </div>
+                        </div>
+                        {isLoggedIn && (
+                          <div className="show-actions">
+                            {show.availableSeats > 0 && !purchasedShowIds.includes(show.id) && (
+                              <button
+                                type="button"
+                                className={`reserve-button ${
+                                  reservedShowIds.includes(show.id) ? 'reserved' : ''
+                                }`}
+                                onClick={() => handleReserveShow(show.id)}
+                              >
+                                {reservedShowIds.includes(show.id)
+                                  ? 'Reserved'
+                                  : 'Reserve ticket'}
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              className={`get-button ${
+                                purchasedShowIds.includes(show.id) ? 'going' : ''
+                              }`}
+                              onClick={() => {
+                                if (!purchasedShowIds.includes(show.id)) {
+                                  handlePurchaseShow(show.id);
+                                }
+                              }}
+                              disabled={show.availableSeats <= 0 && !purchasedShowIds.includes(show.id)}
+                            >
+                              {purchasedShowIds.includes(show.id)
+                                ? 'Going'
+                                : show.availableSeats <= 0
+                                ? 'Sold out'
+                                : 'Get'}
+                            </button>
+                          </div>
+                        )}
+                        {isAdmin && (
+                          <div className="show-admin-actions">
+                            <button
+                              type="button"
+                              className="btn-secondary admin-btn"
+                              onClick={async () => {
+                                const newCity = window.prompt('New city name:', show.city || '');
+                                if (newCity === null) return;
+                                const newVenue = window.prompt('New venue name (optional):', show.venue || '');
+                                if (newVenue === null) return;
+                                try {
+                                  const res = await fetch(`/api/admin/shows/${show.id}`, {
+                                    method: 'PUT',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                      userId: currentUser?.id,
+                                      city: newCity,
+                                      venue: newVenue,
+                                    }),
+                                  });
+                                  const data = await res.json();
+                                  if (!data.success) {
+                                    alert(data.error || 'Could not update show');
+                                    return;
+                                  }
+                                  const showsRes = await fetch('/api/shows');
+                                  const showsData = await showsRes.json();
+                                  setShows(showsData || []);
+                                } catch (error) {
+                                  console.error('Error updating show:', error);
+                                  alert('Error updating show');
+                                }
+                              }}
+                            >
+                              Rename
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-secondary admin-btn"
+                              onClick={async () => {
+                                const input = window.prompt('New price (number):', show.price != null ? String(show.price) : '');
+                                if (input === null) return;
+                                const value = parseFloat(input);
+                                if (Number.isNaN(value)) {
+                                  alert('Please enter a valid number');
+                                  return;
+                                }
+                                try {
+                                  const res = await fetch(`/api/admin/shows/${show.id}`, {
+                                    method: 'PUT',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                      userId: currentUser?.id,
+                                      price: value,
+                                    }),
+                                  });
+                                  const data = await res.json();
+                                  if (!data.success) {
+                                    alert(data.error || 'Could not update price');
+                                    return;
+                                  }
+                                  const showsRes = await fetch('/api/shows');
+                                  const showsData = await showsRes.json();
+                                  setShows(showsData || []);
+                                } catch (error) {
+                                  console.error('Error updating show price:', error);
+                                  alert('Error updating show price');
+                                }
+                              }}
+                            >
+                              Change price
+                            </button>
+                            <button
+                              type="button"
+                              className="delete-account-button admin-btn"
+                              onClick={async () => {
+                                if (!window.confirm('Are you sure you want to delete this show?')) return;
+                                try {
+                                  const res = await fetch(`/api/admin/shows/${show.id}`, {
+                                    method: 'DELETE',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ userId: currentUser?.id }),
+                                  });
+                                  const data = await res.json();
+                                  if (!data.success) {
+                                    alert(data.error || 'Could not delete show');
+                                    return;
+                                  }
+                                  const showsRes = await fetch('/api/shows');
+                                  const showsData = await showsRes.json();
+                                  setShows(showsData || []);
+                                } catch (error) {
+                                  console.error('Error deleting show:', error);
+                                  alert('Error deleting show');
+                                }
+                              }}
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
-                ))}
+                    );
+                  })}
               </div>
             </div>
           )}
@@ -1127,18 +1325,200 @@ function App() {
           {activeSection === 'discography' && (
             <div className="content-section">
               <h2 className="section-title">Discography</h2>
-              <div className="album-card">
+              {isAdmin && (
+                <div className="admin-form discography-admin-form">
+                  <h3 className="admin-subtitle">Admin: Albums</h3>
+                  <div className="discography-admin-buttons">
+                    <button
+                      type="button"
+                      className="btn-primary admin-btn"
+                      onClick={async () => {
+                        const title = window.prompt('Album title:');
+                        if (title === null || title.trim() === '') return;
+                        const yearInput = window.prompt('Album year (optional):');
+                        if (yearInput === null) return;
+                        const coverImage = window.prompt('Cover image path (optional): (e.g. images/amao-cover.png)');
+                        if (coverImage === null) return;
+
+                        const year =
+                          yearInput.trim() === '' ? null : parseInt(yearInput, 10);
+                        if (yearInput.trim() !== '' && Number.isNaN(year)) {
+                          alert('Please enter a valid year or leave empty.');
+                          return;
+                        }
+
+                        try {
+                          const res = await fetch('/api/admin/albums', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              userId: currentUser?.id,
+                              title: title.trim(),
+                              year,
+                              coverImage: coverImage || null,
+                            }),
+                          });
+                          // Try to parse JSON, but also handle non-JSON errors
+                          let data;
+                          const contentType = res.headers.get('content-type') || '';
+                          if (contentType.includes('application/json')) {
+                            data = await res.json();
+                          } else {
+                            const text = await res.text();
+                            console.error('Non-JSON response when creating album:', text);
+                            alert('Could not create album (server error).');
+                            return;
+                          }
+
+                          if (!res.ok || !data.success) {
+                            alert(data?.error || 'Could not create album');
+                            return;
+                          }
+                          const discsRes = await fetch('/api/discography');
+                          const discsData = await discsRes.json();
+                          setAlbums(discsData || []);
+                        } catch (error) {
+                          console.error('Error creating album:', error);
+                          alert('Error creating album');
+                        }
+                      }}
+                    >
+                      Add album
+                    </button>
+                  </div>
+                </div>
+              )}
+      <div>
                 {albums.length > 0 ? (
-                  <>
-                    <div className="album-title">{albums[0].title}</div>
-                    <img 
-                      src={`/${albums[0].coverImage}`}
-                      alt={`${albums[0].title} Album Cover`}
-                      className="album-art"
-                    />
-                    {songs.length > 0 && (
-                      <div className="songs-list">
-                        {songs.map((song) => {
+                  albums.map((album) => {
+                    const albumSongs = songs.filter((song) => song.albumId === album.id);
+                    return (
+                      <div key={album.id} className="album-card" style={{ marginBottom: '2.5rem' }}>
+                        <div className="album-title">
+                          {album.title}
+                          {album.year ? ` (${album.year})` : ''}
+                        </div>
+                        {isAdmin && (
+                          <div className="discography-admin-buttons" style={{ marginBottom: '1rem' }}>
+                            <button
+                              type="button"
+                              className="btn-secondary admin-btn"
+                              onClick={async () => {
+                                const newTitle = window.prompt('Album title:', album.title || '');
+                                if (newTitle === null) return;
+                                const newYearInput = window.prompt(
+                                  'Album year (optional):',
+                                  album.year != null ? String(album.year) : ''
+                                );
+                                if (newYearInput === null) return;
+                                const newCover = window.prompt(
+                                  'Cover image path (optional):',
+                                  album.coverImage || ''
+                                );
+                                if (newCover === null) return;
+
+                                const newYear =
+                                  newYearInput.trim() === '' ? null : parseInt(newYearInput, 10);
+                                if (newYearInput.trim() !== '' && Number.isNaN(newYear)) {
+                                  alert('Please enter a valid year (number) or leave empty.');
+                                  return;
+                                }
+
+                                try {
+                                  const res = await fetch(`/api/admin/albums/${album.id}`, {
+                                    method: 'PUT',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                      userId: currentUser?.id,
+                                      title: newTitle,
+                                      year: newYear,
+                                      coverImage: newCover || null,
+                                    }),
+                                  });
+                                  const data = await res.json();
+                                  if (!data.success) {
+                                    alert(data.error || 'Could not update album');
+                                    return;
+                                  }
+                                  const discsRes = await fetch('/api/discography');
+                                  const discsData = await discsRes.json();
+                                  setAlbums(discsData || []);
+                                } catch (error) {
+                                  console.error('Error updating album:', error);
+                                  alert('Error updating album');
+                                }
+                              }}
+                            >
+                              Edit album
+                            </button>
+                            <button
+                              type="button"
+                              className="delete-account-button admin-btn"
+                              onClick={async () => {
+                                if (
+                                  !window.confirm(
+                                    'Are you sure you want to delete this album and all its songs?'
+                                  )
+                                )
+                                  return;
+                                try {
+                                  const res = await fetch(`/api/admin/albums/${album.id}`, {
+                                    method: 'DELETE',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ userId: currentUser?.id }),
+                                  });
+                                  const data = await res.json();
+                                  if (!data.success) {
+                                    alert(data.error || 'Could not delete album');
+                                    return;
+                                  }
+                                  const discsRes = await fetch('/api/discography');
+                                  const discsData = await discsRes.json();
+                                  setAlbums(discsData || []);
+                                  // Reload all songs after deletion
+                                  const allSongsRes = await fetch('/api/songs');
+                                  const allSongsData = await allSongsRes.json();
+                                  setSongs(allSongsData || []);
+                                } catch (error) {
+                                  console.error('Error deleting album:', error);
+                                  alert('Error deleting album');
+                                }
+                              }}
+                            >
+                              Delete album
+                            </button>
+                          </div>
+                        )}
+                        {(album.coverImage || (album.title && album.title.toLowerCase().includes('kid a'))) && (() => {
+                          let coverSrc;
+
+                          if (album.coverImage) {
+                            coverSrc = album.coverImage.startsWith('http')
+                              ? album.coverImage
+                              : `/${album.coverImage}`;
+                          } else {
+                            coverSrc = null;
+                          }
+
+                          // Special case: Kid A album uses your Cloudinary image,
+                          // even if there is no coverImage set in the database.
+                          if (album.title && album.title.toLowerCase().includes('kid a')) {
+                            coverSrc = 'https://res.cloudinary.com/dui2htda9/image/upload/v1764851055/Radioheadkida_yurrcn.png';
+                          }
+
+                          if (!coverSrc) return null;
+
+                          return (
+                            <img
+                              src={coverSrc}
+                              alt={`${album.title} Album Cover`}
+                              className="album-art"
+                            />
+                          );
+                        })()}
+                        <div className="songs-list">
+                          {albumSongs.length > 0 ? (
+                            albumSongs.map((song) => {
                           const isLiked = likedSongIds.includes(song.id);
                           const averageRating = songAverages[song.id]?.average || 0;
                           const ratingCount = songAverages[song.id]?.count || 0;
@@ -1174,12 +1554,139 @@ function App() {
                                   </svg>
                                 </span>
                               )}
+                              {isAdmin && (
+                                <div className="song-admin-actions">
+                                  <button
+                                    type="button"
+                                    className="btn-secondary admin-btn"
+                                    onClick={async () => {
+                                      const newTitle = window.prompt('New song title:', song.title || '');
+                                      if (newTitle === null) return;
+                                      const newDuration = window.prompt('New duration (e.g. 4:30):', song.duration || '');
+                                      if (newDuration === null) return;
+                                      const newTrackInput = window.prompt('New track number:', String(song.trackNumber || ''));
+                                      if (newTrackInput === null) return;
+                                      const newTrackNumber = parseInt(newTrackInput, 10);
+                                      if (Number.isNaN(newTrackNumber)) {
+                                        alert('Please enter a valid track number');
+                                        return;
+                                      }
+                                      try {
+                                        const res = await fetch(`/api/admin/songs/${song.id}`, {
+                                          method: 'PUT',
+                                          headers: { 'Content-Type': 'application/json' },
+                                          body: JSON.stringify({
+                                            userId: currentUser?.id,
+                                            title: newTitle,
+                                            duration: newDuration,
+                                            trackNumber: newTrackNumber,
+                                          }),
+                                        });
+                                        const data = await res.json();
+                                        if (!data.success) {
+                                          alert(data.error || 'Could not update song');
+                                          return;
+                                        }
+                                        const allSongsRes = await fetch('/api/songs');
+                                        const allSongsData = await allSongsRes.json();
+                                        setSongs(allSongsData || []);
+                                      } catch (error) {
+                                        console.error('Error updating song:', error);
+                                        alert('Error updating song');
+                                      }
+                                    }}
+                                  >
+                                    Edit
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="delete-account-button admin-btn"
+                                    onClick={async () => {
+                                      if (!window.confirm(`Delete song "${song.title}"?`)) return;
+                                      try {
+                                        const res = await fetch(`/api/admin/songs/${song.id}`, {
+                                          method: 'DELETE',
+                                          headers: { 'Content-Type': 'application/json' },
+                                          body: JSON.stringify({ userId: currentUser?.id }),
+                                        });
+                                        const data = await res.json();
+                                        if (!data.success) {
+                                          alert(data.error || 'Could not delete song');
+                                          return;
+                                        }
+                                        const allSongsRes = await fetch('/api/songs');
+                                        const allSongsData = await allSongsRes.json();
+                                        setSongs(allSongsData || []);
+                                      } catch (error) {
+                                        console.error('Error deleting song:', error);
+                                        alert('Error deleting song');
+                                      }
+                                    }}
+                                  >
+                                    Delete
+                                  </button>
+                                </div>
+                              )}
                             </div>
                           );
-                        })}
+                        })
+                          ) : (
+                            <div className="no-comments" style={{ marginTop: '1rem' }}>
+                              No songs yet for this album.
+                            </div>
+                          )}
+                          {isAdmin && (
+                            <div className="song-admin-add">
+                              <button
+                                type="button"
+                                className="btn-primary"
+                                style={{ marginTop: '1rem' }}
+                                onClick={async () => {
+                                  const title = window.prompt('Song title:');
+                                  if (title === null || title.trim() === '') return;
+                                  const duration = window.prompt('Duration (e.g. 4:30):');
+                                  if (duration === null || duration.trim() === '') return;
+                                  const trackInput = window.prompt('Track number:');
+                                  if (trackInput === null) return;
+                                  const trackNumber = parseInt(trackInput, 10);
+                                  if (Number.isNaN(trackNumber)) {
+                                    alert('Please enter a valid track number');
+                                    return;
+                                  }
+                                  try {
+                                    const res = await fetch('/api/admin/songs', {
+                                      method: 'POST',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({
+                                        userId: currentUser?.id,
+                                        albumId: album.id,
+                                        title: title.trim(),
+                                        duration: duration.trim(),
+                                        trackNumber,
+                                      }),
+                                    });
+                                    const data = await res.json();
+                                    if (!data.success) {
+                                      alert(data.error || 'Could not create song');
+                                      return;
+                                    }
+                                    const allSongsRes = await fetch('/api/songs');
+                                    const allSongsData = await allSongsRes.json();
+                                    setSongs(allSongsData || []);
+                                  } catch (error) {
+                                    console.error('Error creating song:', error);
+                                    alert('Error creating song');
+                                  }
+                                }}
+                              >
+                                Add song
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    )}
-                  </>
+                    );
+                  })
                 ) : (
                   <div className="album-art-placeholder">
                     <div style={{ marginBottom: '1rem', fontSize: '2rem' }}>🎵</div>
@@ -1193,6 +1700,79 @@ function App() {
           {activeSection === 'merch' && (
             <div className="content-section">
               <h2 className="section-title">Merchandise</h2>
+              {isAdmin && (
+                <div className="admin-form">
+                  <h3 className="admin-subtitle">Admin: Add new merch item</h3>
+                  <form
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+                      const formData = new FormData(e.target);
+                      const name = formData.get('name');
+                      const price = formData.get('price');
+                      const type = formData.get('type');
+                      const variant = formData.get('variant');
+                      const availableQuantity = formData.get('availableQuantity');
+
+                      if (!name || !price) {
+                        alert('Name and price are required');
+                        return;
+                      }
+
+                      const priceValue = parseFloat(price);
+                      if (Number.isNaN(priceValue)) {
+                        alert('Please enter a valid price');
+                        return;
+                      }
+
+                      const qtyValue =
+                        availableQuantity && availableQuantity.trim() !== ''
+                          ? parseInt(availableQuantity, 10)
+                          : null;
+                      if (availableQuantity && Number.isNaN(qtyValue)) {
+                        alert('Please enter a valid quantity');
+                        return;
+                      }
+
+                      try {
+                        const res = await fetch('/api/admin/merch', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            userId: currentUser?.id,
+                            name: name.trim(),
+                            price: priceValue,
+                            type: type || null,
+                            variant: variant || null,
+                            availableQuantity: qtyValue,
+                          }),
+                        });
+                        const data = await res.json();
+                        if (!data.success) {
+                          alert(data.error || 'Could not create merch item');
+                          return;
+                        }
+                        const merchRes = await fetch('/api/merch');
+                        const merchData = await merchRes.json();
+                        setMerchItems(merchData || []);
+                        e.target.reset();
+                      } catch (error) {
+                        console.error('Error creating merch item:', error);
+                        alert('Error creating merch item');
+                      }
+                    }}
+                    className="admin-show-form"
+                  >
+                    <input name="name" type="text" className="input-field admin-input" placeholder="Name" />
+                    <input name="price" type="number" step="0.01" className="input-field admin-input" placeholder="Price" />
+                    <input name="type" type="text" className="input-field admin-input" placeholder="Type (shirt, vinyl, guitar...)" />
+                    <input name="variant" type="text" className="input-field admin-input" placeholder="Variant (optional)" />
+                    <input name="availableQuantity" type="number" className="input-field admin-input" placeholder="Available quantity (optional)" />
+                    <button type="submit" className="btn-primary" style={{ padding: '0.6rem 1.2rem', marginTop: '0.5rem' }}>
+                      Add merch item
+                    </button>
+                  </form>
+                </div>
+              )}
               <div className="merch-controls">
                 <div className="search-bar-container">
                   <input
@@ -1264,6 +1844,28 @@ function App() {
                     } else if (item.type === 'guitar' || (!item.type && (item.name.toLowerCase().includes('guitar') || item.name.toLowerCase().includes('fender') || item.name.toLowerCase().includes('gibson')))) {
                       icon = '🎸';
                     }
+
+                    // Optional image for specific merch items
+                    // Use "variant" where possible so images don't disappear if you rename the visible name.
+                    let merchImageUrl = null;
+                    const variantKey = (item.variant || item.name || '').toLowerCase();
+
+                    if (variantKey.includes('custom fender stratocaster')) {
+                      merchImageUrl = 'https://res.cloudinary.com/dui2htda9/image/upload/v1764677812/XN17203-1_1200x_nndrxm.webp';
+                    } else if (variantKey.includes('custom fender telecaster')) {
+                      // Use Cloudinary transformation to rotate left (90 degrees) so CSS sizing stays consistent
+                      merchImageUrl = 'https://res.cloudinary.com/dui2htda9/image/upload/a_270/v1764678188/FenderTelecasterCustom1960Relic-1_lsenum.jpg';
+                    } else if (variantKey.includes('custom gibson les paul')) {
+                      merchImageUrl = 'https://res.cloudinary.com/dui2htda9/image/upload/v1764678562/rotate_90_gibson-custom-black-70_hwuuou.jpg';
+                    } else if (variantKey.includes('black') && item.type === 'shirt') {
+                      merchImageUrl = 'https://res.cloudinary.com/dui2htda9/image/upload/v1764678772/T-Shirt-PNG-Transparent-Image_tmg2rx.png';
+                    } else if (variantKey.includes('blue') && item.type === 'shirt') {
+                      merchImageUrl = 'https://res.cloudinary.com/dui2htda9/image/upload/v1764678826/Blue_T_Shirt_PNG_Clip_Art-3104_nkybl8.png';
+                    } else if (variantKey.includes('red') && item.type === 'shirt') {
+                      merchImageUrl = 'https://res.cloudinary.com/dui2htda9/image/upload/v1764678778/pngtree-plain-red-t-shirt-casual-cotton-apparel-for-men-s-fashion-png-image_16062974_j9shsl.png';
+                    } else if (item.type === 'vinyl') {
+                      merchImageUrl = 'https://res.cloudinary.com/dui2htda9/image/upload/v1764679002/vinyl-record-vector-illustration-isolated-on-white-background-free-png_fodftd.png';
+                    }
                     
                     const isInWishlist = wishlistMerchIds.includes(item.id);
                     const isPurchased = purchasedMerchIds.includes(item.id);
@@ -1283,7 +1885,16 @@ function App() {
                             </svg>
                           </span>
                         )}
-                        <div className="merch-icon">{icon}</div>
+                        {!merchImageUrl && (
+                          <div className="merch-icon">{icon}</div>
+                        )}
+                        {merchImageUrl && (
+                          <img
+                            src={merchImageUrl}
+                            alt={item.name}
+                            className="merch-image"
+                          />
+                        )}
                         <div className="merch-name">{item.name}</div>
                         <div className="merch-price">
                           {discountApplied ? (
@@ -1328,6 +1939,87 @@ function App() {
                               : 'Get'}
                           </button>
                         )}
+                        {isAdmin && (
+                          <div className="show-admin-actions" style={{ marginTop: '0.5rem' }}>
+                            <button
+                              type="button"
+                              className="btn-secondary admin-btn"
+                              onClick={async () => {
+                                const newName = window.prompt('New merch name:', item.name || '');
+                                if (newName === null) return;
+                                const newPriceInput = window.prompt('New price:', String(item.price || ''));
+                                if (newPriceInput === null) return;
+                                const newPrice = parseFloat(newPriceInput);
+                                if (Number.isNaN(newPrice)) {
+                                  alert('Please enter a valid price');
+                                  return;
+                                }
+                                const newQtyInput = window.prompt('New available quantity (optional):', item.availableQuantity != null ? String(item.availableQuantity) : '');
+                                if (newQtyInput === null) return;
+                                const newQty =
+                                  newQtyInput.trim() === ''
+                                    ? undefined
+                                    : parseInt(newQtyInput, 10);
+                                if (newQtyInput.trim() !== '' && Number.isNaN(newQty)) {
+                                  alert('Please enter a valid quantity');
+                                  return;
+                                }
+                                try {
+                                  const res = await fetch(`/api/admin/merch/${item.id}`, {
+                                    method: 'PUT',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                      userId: currentUser?.id,
+                                      name: newName,
+                                      price: newPrice,
+                                      availableQuantity: newQty,
+                                    }),
+                                  });
+                                  const data = await res.json();
+                                  if (!data.success) {
+                                    alert(data.error || 'Could not update merch item');
+                                    return;
+                                  }
+                                  const merchRes = await fetch('/api/merch');
+                                  const merchData = await merchRes.json();
+                                  setMerchItems(merchData || []);
+                                } catch (error) {
+                                  console.error('Error updating merch item:', error);
+                                  alert('Error updating merch item');
+                                }
+                              }}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              className="delete-account-button admin-btn"
+                              onClick={async () => {
+                                if (!window.confirm(`Delete merch item "${item.name}"?`)) return;
+                                try {
+                                  const res = await fetch(`/api/admin/merch/${item.id}`, {
+                                    method: 'DELETE',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ userId: currentUser?.id }),
+                                  });
+                                  const data = await res.json();
+                                  if (!data.success) {
+                                    alert(data.error || 'Could not delete merch item');
+                                    return;
+                                  }
+                                  const merchRes = await fetch('/api/merch');
+                                  const merchData = await merchRes.json();
+                                  setMerchItems(merchData || []);
+                                } catch (error) {
+                                  console.error('Error deleting merch item:', error);
+                                  alert('Error deleting merch item');
+                                }
+                              }}
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -1362,6 +2054,91 @@ function App() {
       </div>
             </div>
           )}
+
+          {activeSection === 'purchases' && (
+            <div className="content-section">
+              <h2 className="section-title">My Purchases</h2>
+              {!isLoggedIn && (
+                <div className="album-art-placeholder">
+                  <div style={{ marginBottom: '1rem', fontSize: '2rem' }}>🧾</div>
+                  <div>Please log in to see your purchase history.</div>
+                </div>
+              )}
+              {isLoggedIn && (
+                <>
+                  <div className="purchases-section">
+                    <h3 className="purchases-subtitle">Shows</h3>
+                    <div className="purchases-group">
+                      <div className="purchases-column">
+                        <h4>Tickets bought</h4>
+                        {shows.filter(show => purchasedShowIds.includes(show.id)).length === 0 ? (
+                          <div className="purchases-empty">You haven&apos;t bought any tickets yet.</div>
+                        ) : (
+                          <ul className="purchases-list">
+                            {shows
+                              .filter(show => purchasedShowIds.includes(show.id))
+                              .map(show => (
+                                <li key={show.id} className="purchases-item">
+                                  <span>
+                                    {show.city}{show.venue ? ` — ${show.venue}` : ''} ({show.date ? new Date(show.date).toISOString().split('T')[0] : show.date})
+                                  </span>
+                                  {show.price && (
+                                    <span className="purchases-meta">
+                                      ${parseFloat(show.price).toFixed(2)}
+                                    </span>
+                                  )}
+                                </li>
+                              ))}
+                          </ul>
+                        )}
+                      </div>
+                      <div className="purchases-column">
+                        <h4>Shows reserved</h4>
+                        {shows.filter(show => reservedShowIds.includes(show.id)).length === 0 ? (
+                          <div className="purchases-empty">You haven&apos;t reserved any shows.</div>
+                        ) : (
+                          <ul className="purchases-list">
+                            {shows
+                              .filter(show => reservedShowIds.includes(show.id))
+                              .map(show => (
+                                <li key={show.id} className="purchases-item">
+                                  <span>
+                                    {show.city}{show.venue ? ` — ${show.venue}` : ''} ({show.date ? new Date(show.date).toISOString().split('T')[0] : show.date})
+                                  </span>
+                                  <span className="purchases-meta">Reserved</span>
+                                </li>
+                              ))}
+                          </ul>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="purchases-section">
+                    <h3 className="purchases-subtitle">Merch</h3>
+                    {merchItems.filter(item => purchasedMerchIds.includes(item.id)).length === 0 ? (
+                      <div className="purchases-empty">You haven&apos;t purchased any merch yet.</div>
+                    ) : (
+                      <ul className="purchases-list">
+                        {merchItems
+                          .filter(item => purchasedMerchIds.includes(item.id))
+                          .map(item => (
+                            <li key={item.id} className="purchases-item">
+                              <span>{item.name}</span>
+                              <span className="purchases-meta">
+                                ${parseFloat(item.price).toFixed(2)}
+                              </span>
+                            </li>
+                          ))}
+                      </ul>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* QR ticket scanner page removed */}
         </main>
 
         {/* Rating Modal */}
@@ -1564,7 +2341,7 @@ function App() {
               </p>
               <div style={{ marginBottom: '2rem' }}>
                 <label style={{ display: 'block', marginBottom: '1rem', color: '#e0e0e0', fontSize: '1.1rem' }}>
-                  How many tickets? (1-4)
+                  How many? (1-4)
                 </label>
                 <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
                   {[1, 2, 3, 4].map((num) => (

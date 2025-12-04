@@ -3,7 +3,8 @@ CREATE TABLE IF NOT EXISTS users (
   id SERIAL PRIMARY KEY,
   email TEXT NOT NULL UNIQUE,
   password TEXT NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin'))
 );
 
 -- Shows table
@@ -102,9 +103,6 @@ CREATE TABLE IF NOT EXISTS visitor_counter (
   CONSTRAINT single_row CHECK (id = 1)
 );
 
--- Insert initial row for visitor counter
 INSERT INTO visitor_counter (id, count)
 VALUES (1, 0)
 ON CONFLICT (id) DO NOTHING;
-
-
