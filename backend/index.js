@@ -24,6 +24,34 @@ app.get('/', (req, res) => {
   res.json({ message: 'Backend server is running!' });
 });
 
+// Quick update endpoint for Delirium - place it early so it loads
+app.get('/api/fix-delirium', async (req, res) => {
+  try {
+    // Ensure column exists
+    try {
+      await db.query(`ALTER TABLE songs ADD COLUMN IF NOT EXISTS audio_url TEXT;`);
+    } catch (e) {
+      // Column might already exist, that's fine
+    }
+    
+    // Update Delirium (song ID 8)
+    const result = await db.query(`
+      UPDATE songs 
+      SET audio_url = $1
+      WHERE id = 8
+      RETURNING id, title, audio_url AS "audioUrl"
+    `, ['https://res.cloudinary.com/dui2htda9/video/upload/v1764942134/sitebestt_wz73mm.mp3']);
+    
+    res.json({ 
+      success: true, 
+      message: 'Delirium updated!',
+      song: result.rows[0]
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // Simple image upload route using Cloudinary
 // Expects a form-data request with a single file field named "image"
 app.post('/api/upload-image', upload.single('image'), async (req, res) => {
@@ -53,6 +81,88 @@ app.post('/api/upload-image', upload.single('image'), async (req, res) => {
   } catch (error) {
     console.error('Cloudinary upload error:', error);
     return res.status(500).json({ success: false, error: 'Upload failed' });
+  }
+});
+
+// Add audio_url column to songs table if it doesn't exist
+app.post('/api/add-audio-url-column', async (req, res) => {
+  try {
+    // First check if column exists
+    const columnCheck = await db.query(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name='songs' AND column_name='audio_url';
+    `);
+    
+    if (columnCheck.rows.length === 0) {
+      await db.query(`
+        ALTER TABLE songs 
+        ADD COLUMN audio_url TEXT;
+      `);
+      res.json({ success: true, message: 'audio_url column added successfully' });
+    } else {
+      res.json({ success: true, message: 'audio_url column already exists' });
+    }
+  } catch (error) {
+    console.error('Error adding audio_url column:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Check if audio_url column exists
+app.get('/api/check-audio-url-column', async (req, res) => {
+  try {
+    const columnCheck = await db.query(`
+      SELECT column_name, data_type 
+      FROM information_schema.columns 
+      WHERE table_name='songs' AND column_name='audio_url';
+    `);
+    
+    res.json({ 
+      exists: columnCheck.rows.length > 0,
+      column: columnCheck.rows[0] || null
+    });
+  } catch (error) {
+    console.error('Error checking column:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Direct update endpoint for Delirium song (GET version for easy browser access)
+app.get('/api/update-delirium-audio', async (req, res) => {
+  try {
+    // First ensure column exists
+    const columnCheck = await db.query(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name='songs' AND column_name='audio_url';
+    `);
+    
+    if (columnCheck.rows.length === 0) {
+      await db.query(`ALTER TABLE songs ADD COLUMN audio_url TEXT;`);
+      console.log('Added audio_url column');
+    }
+    
+    // Update Delirium song
+    const result = await db.query(`
+      UPDATE songs 
+      SET audio_url = $1
+      WHERE LOWER(title) = LOWER('Delirium')
+      RETURNING id, title, audio_url AS "audioUrl"
+    `, ['https://res.cloudinary.com/dui2htda9/video/upload/v1764942134/sitebestt_wz73mm.mp3']);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Delirium song not found' });
+    }
+    
+    res.json({ 
+      success: true, 
+      message: 'Delirium audio URL updated',
+      song: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Error updating Delirium:', error);
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
@@ -1205,11 +1315,28 @@ app.get('/api/songs', async (req, res) => {
     const albumId = req.query.albumId;
     let query, params;
     
+    // Check if audio_url column exists first
+    const columnCheck = await db.query(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name='songs' AND column_name='audio_url';
+    `);
+    
+    const hasAudioUrl = columnCheck.rows.length > 0;
+    
     if (albumId) {
-      query = 'SELECT id, album_id AS "albumId", title, duration, track_number AS "trackNumber" FROM songs WHERE album_id = $1 ORDER BY track_number ASC';
+      if (hasAudioUrl) {
+        query = 'SELECT id, album_id AS "albumId", title, duration, track_number AS "trackNumber", audio_url AS "audioUrl" FROM songs WHERE album_id = $1 ORDER BY track_number ASC';
+      } else {
+        query = 'SELECT id, album_id AS "albumId", title, duration, track_number AS "trackNumber" FROM songs WHERE album_id = $1 ORDER BY track_number ASC';
+      }
       params = [albumId];
     } else {
-      query = 'SELECT id, album_id AS "albumId", title, duration, track_number AS "trackNumber" FROM songs ORDER BY album_id ASC, track_number ASC';
+      if (hasAudioUrl) {
+        query = 'SELECT id, album_id AS "albumId", title, duration, track_number AS "trackNumber", audio_url AS "audioUrl" FROM songs ORDER BY album_id ASC, track_number ASC';
+      } else {
+        query = 'SELECT id, album_id AS "albumId", title, duration, track_number AS "trackNumber" FROM songs ORDER BY album_id ASC, track_number ASC';
+      }
       params = [];
     }
     
@@ -1227,7 +1354,7 @@ app.get('/api/songs', async (req, res) => {
 
 // Admin: create a new song
 app.post('/api/admin/songs', async (req, res) => {
-  const { userId, albumId, title, duration, trackNumber } = req.body || {};
+  const { userId, albumId, title, duration, trackNumber, audioUrl } = req.body || {};
 
   if (!userId) {
     return res.status(400).json({ success: false, error: 'userId is required' });
@@ -1247,10 +1374,10 @@ app.post('/api/admin/songs', async (req, res) => {
     }
 
     const result = await db.query(
-      `INSERT INTO songs (album_id, title, duration, track_number)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id, album_id AS "albumId", title, duration, track_number AS "trackNumber"`,
-      [albumId, title, duration, trackNumber]
+      `INSERT INTO songs (album_id, title, duration, track_number, audio_url)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, album_id AS "albumId", title, duration, track_number AS "trackNumber", audio_url AS "audioUrl"`,
+      [albumId, title, duration, trackNumber, audioUrl || null]
     );
 
     res.status(201).json({ success: true, song: result.rows[0] });
@@ -1263,7 +1390,7 @@ app.post('/api/admin/songs', async (req, res) => {
 // Admin: update an existing song
 app.put('/api/admin/songs/:songId', async (req, res) => {
   const songId = parseInt(req.params.songId, 10);
-  const { userId, albumId, title, duration, trackNumber } = req.body || {};
+  const { userId, albumId, title, duration, trackNumber, audioUrl } = req.body || {};
 
   if (!userId) {
     return res.status(400).json({ success: false, error: 'userId is required' });
@@ -1299,6 +1426,11 @@ app.put('/api/admin/songs/:songId', async (req, res) => {
       fields.push(`track_number = $${idx++}`);
       values.push(trackNumber);
     }
+    if (audioUrl !== undefined) {
+      fields.push(`audio_url = $${idx++}`);
+      values.push(audioUrl || null);
+      console.log(`Updating song ${songId} with audioUrl:`, audioUrl || null);
+    }
 
     if (fields.length === 0) {
       return res.status(400).json({ success: false, error: 'no fields to update' });
@@ -1310,10 +1442,13 @@ app.put('/api/admin/songs/:songId', async (req, res) => {
       UPDATE songs
       SET ${fields.join(', ')}
       WHERE id = $${idx}
-      RETURNING id, album_id AS "albumId", title, duration, track_number AS "trackNumber"
+      RETURNING id, album_id AS "albumId", title, duration, track_number AS "trackNumber", audio_url AS "audioUrl"
     `;
 
+    console.log('Update query:', query);
+    console.log('Update values:', values);
     const result = await db.query(query, values);
+    console.log('Update result:', result.rows[0]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({ success: false, error: 'song not found' });
@@ -2152,7 +2287,50 @@ app.post('/api/visitor/increment', async (req, res) => {
   }
 });
 
-// Start server
+// Automatically add audio_url column on server start
+(async () => {
+  try {
+    // First check if column exists
+    const columnCheck = await db.query(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name='songs' AND column_name='audio_url';
+    `);
+    
+    if (columnCheck.rows.length === 0) {
+      console.log('Adding audio_url column to songs table...');
+      await db.query(`
+        ALTER TABLE songs 
+        ADD COLUMN audio_url TEXT;
+      `);
+      console.log('✓ audio_url column added to songs table');
+    } else {
+      console.log('✓ audio_url column already exists');
+    }
+  } catch (error) {
+    console.error('❌ Error checking/adding audio_url column:', error.message);
+    console.error('Full error:', error);
+  }
+})();
+
+// Debug endpoint to check a specific song's data
+app.get('/api/debug/song/:songId', async (req, res) => {
+  try {
+    const songId = parseInt(req.params.songId, 10);
+    const result = await db.query(
+      'SELECT * FROM songs WHERE id = $1',
+      [songId]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Song not found' });
+    }
+    res.json({ song: result.rows[0] });
+  } catch (error) {
+    console.error('Error fetching song:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
 });

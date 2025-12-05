@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import './App.css'
 
 function App() {
@@ -52,6 +52,10 @@ function App() {
   const [showSignUpPassword, setShowSignUpPassword] = useState(false);
   const [visitorCount, setVisitorCount] = useState(0);
   const [theme, setTheme] = useState('dark');
+  const [currentlyPlaying, setCurrentlyPlaying] = useState(null);
+  const audioPlayerRef = useRef(null);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
 
   const handleLogin = () => {
     setShowLogin(true);
@@ -562,6 +566,110 @@ function App() {
     }
   };
 
+  const handlePlayPause = (song) => {
+    if (!song.audioUrl) {
+      alert('No audio file available for this song');
+      return;
+    }
+
+    const audioElement = audioPlayerRef.current;
+    if (!audioElement) {
+      alert('Audio player not available');
+      return;
+    }
+
+    if (currentlyPlaying === song.id) {
+      // Pause current song
+      audioElement.pause();
+      setCurrentlyPlaying(null);
+    } else {
+      // Stop any currently playing song
+      audioElement.pause();
+      audioElement.currentTime = 0;
+      setCurrentTime(0);
+      
+      // Play new song
+      setCurrentlyPlaying(song.id);
+      audioElement.src = song.audioUrl;
+      
+      // Reset duration when loading new source
+      setDuration(0);
+      
+      // Wait for metadata to load before playing
+      audioElement.addEventListener('loadedmetadata', function onMetadataLoaded() {
+        setDuration(audioElement.duration);
+        audioElement.removeEventListener('loadedmetadata', onMetadataLoaded);
+      }, { once: true });
+      
+      audioElement.play().catch(error => {
+        console.error('Error playing audio:', error);
+        alert('Could not play audio. Please check the audio URL.');
+        setCurrentlyPlaying(null);
+      });
+    }
+  };
+
+  const formatTime = (seconds) => {
+    if (isNaN(seconds)) return '0:00';
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const handleSeek = (e) => {
+    const audioElement = audioPlayerRef.current;
+    if (audioElement && duration > 0) {
+      const percentage = parseFloat(e.target.value);
+      const seekTime = (percentage / 100) * duration;
+      audioElement.currentTime = seekTime;
+      setCurrentTime(seekTime);
+    }
+  };
+
+  useEffect(() => {
+    const audioElement = audioPlayerRef.current;
+    if (audioElement) {
+      const handleTimeUpdate = () => {
+        if (!isNaN(audioElement.currentTime)) {
+          setCurrentTime(audioElement.currentTime);
+        }
+      };
+      const handleLoadedMetadata = () => {
+        if (!isNaN(audioElement.duration) && audioElement.duration > 0) {
+          setDuration(audioElement.duration);
+        }
+      };
+      const handleLoadedData = () => {
+        if (!isNaN(audioElement.duration) && audioElement.duration > 0) {
+          setDuration(audioElement.duration);
+        }
+      };
+      const handleCanPlay = () => {
+        if (!isNaN(audioElement.duration) && audioElement.duration > 0) {
+          setDuration(audioElement.duration);
+        }
+      };
+      const handleEnded = () => {
+        setCurrentlyPlaying(null);
+        setCurrentTime(0);
+      };
+      
+      audioElement.addEventListener('timeupdate', handleTimeUpdate);
+      audioElement.addEventListener('loadedmetadata', handleLoadedMetadata);
+      audioElement.addEventListener('loadeddata', handleLoadedData);
+      audioElement.addEventListener('canplay', handleCanPlay);
+      audioElement.addEventListener('ended', handleEnded);
+      
+      return () => {
+        audioElement.removeEventListener('timeupdate', handleTimeUpdate);
+        audioElement.removeEventListener('loadedmetadata', handleLoadedMetadata);
+        audioElement.removeEventListener('loadeddata', handleLoadedData);
+        audioElement.removeEventListener('canplay', handleCanPlay);
+        audioElement.removeEventListener('ended', handleEnded);
+      };
+    }
+  }, []);
+
   const handleSongClick = async (songId) => {
     setSelectedSong(songId);
     setShowRatingModal(true);
@@ -907,6 +1015,8 @@ function App() {
   // Main page with header
   if (showMainPage) {
   return (
+    <>
+      <audio ref={audioPlayerRef} style={{ display: 'none' }} />
       <div className="main-page">
         {/* Loading Screen */}
         {isLoading && (
@@ -1571,6 +1681,8 @@ function App() {
                                         alert('Please enter a valid track number');
                                         return;
                                       }
+                                      const newAudioUrl = window.prompt('Audio URL (Cloudinary MP3 link, or leave empty):', song.audioUrl || '');
+                                      if (newAudioUrl === null) return;
                                       try {
                                         const res = await fetch(`/api/admin/songs/${song.id}`, {
                                           method: 'PUT',
@@ -1580,6 +1692,7 @@ function App() {
                                             title: newTitle,
                                             duration: newDuration,
                                             trackNumber: newTrackNumber,
+                                            audioUrl: newAudioUrl.trim() || null,
                                           }),
                                         });
                                         const data = await res.json();
@@ -1653,6 +1766,8 @@ function App() {
                                     alert('Please enter a valid track number');
                                     return;
                                   }
+                                  const audioUrl = window.prompt('Audio URL (Cloudinary MP3 link, or leave empty):', '');
+                                  if (audioUrl === null) return;
                                   try {
                                     const res = await fetch('/api/admin/songs', {
                                       method: 'POST',
@@ -1663,6 +1778,7 @@ function App() {
                                         title: title.trim(),
                                         duration: duration.trim(),
                                         trackNumber,
+                                        audioUrl: audioUrl.trim() || null,
                                       }),
                                     });
                                     const data = await res.json();
@@ -2150,6 +2266,53 @@ function App() {
                 {songs.find(s => s.id === selectedSong)?.title || 'Song'}
               </h2>
               
+              {/* Audio Player */}
+              {(() => {
+                const song = songs.find(s => s.id === selectedSong);
+                if (song && song.audioUrl) {
+                  return (
+                    <div className="audio-player-container">
+                      <div className="audio-controls">
+                        <button
+                          type="button"
+                          className="audio-play-button"
+                          onClick={() => handlePlayPause(song)}
+                          aria-label={currentlyPlaying === song.id ? 'Pause' : 'Play'}
+                        >
+                          {currentlyPlaying === song.id ? (
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                              <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/>
+                            </svg>
+                          ) : (
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                              <path d="M8 5v14l11-7z"/>
+                            </svg>
+                          )}
+        </button>
+                        <div className="audio-seek-container">
+                          <input
+                            type="range"
+                            min="0"
+                            max="100"
+                            step="0.1"
+                            value={duration > 0 && !isNaN(duration) ? (currentTime / duration) * 100 : 0}
+                            onChange={handleSeek}
+                            onInput={handleSeek}
+                            className="audio-seek-bar"
+                            style={{ cursor: 'pointer' }}
+                          />
+                          <div className="audio-time-display">
+                            <span>{formatTime(currentTime)}</span>
+                            <span>{formatTime(duration)}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+              
               {songAverages[selectedSong] && songAverages[selectedSong].count > 0 && (
                 <div className="average-rating-display">
                   <div className="average-rating-stars">
@@ -2486,7 +2649,8 @@ function App() {
           </div>
         )}
       </div>
-    );
+    </>
+  )
   }
 
   // Auth page
@@ -2596,7 +2760,7 @@ function App() {
         )}
       </div>
     </div>
-  )
+  );
 }
 
 export default App

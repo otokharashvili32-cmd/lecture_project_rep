@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS songs (
   title TEXT NOT NULL,
   duration TEXT NOT NULL,
   track_number INT NOT NULL,
+  audio_url TEXT,
   UNIQUE (album_id, track_number)
 );
 
