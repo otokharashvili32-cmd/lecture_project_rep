@@ -20,6 +20,16 @@ function App() {
   const [likedSongIds, setLikedSongIds] = useState([]);
   const [selectedSong, setSelectedSong] = useState(null);
   const [showRatingModal, setShowRatingModal] = useState(false);
+  const [showLyricsModal, setShowLyricsModal] = useState(false);
+  const [editingLyrics, setEditingLyrics] = useState(false);
+  const [lyricsText, setLyricsText] = useState('');
+  const [playlists, setPlaylists] = useState([]);
+  const [showCreatePlaylistModal, setShowCreatePlaylistModal] = useState(false);
+  const [editingPlaylistId, setEditingPlaylistId] = useState(null);
+  const [selectedPlaylistId, setSelectedPlaylistId] = useState(null);
+  const [showAddSongsModal, setShowAddSongsModal] = useState(false);
+  const [publicPlaylists, setPublicPlaylists] = useState([]);
+  const [showOtherPlaylists, setShowOtherPlaylists] = useState(false);
   const [songRatings, setSongRatings] = useState({});
   const [songAverages, setSongAverages] = useState({});
   const [userRating, setUserRating] = useState(0);
@@ -56,6 +66,13 @@ function App() {
   const audioPlayerRef = useRef(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [adminMode, setAdminMode] = useState(false);
+  const [editingShowId, setEditingShowId] = useState(null);
+  const [editingSongId, setEditingSongId] = useState(null);
+  const [editingAlbumId, setEditingAlbumId] = useState(null);
+  const [editingMerchId, setEditingMerchId] = useState(null);
+  const [addingSongToAlbumId, setAddingSongToAlbumId] = useState(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
 
   const handleLogin = () => {
     setShowLogin(true);
@@ -94,6 +111,17 @@ function App() {
         setLoginError('');
         setIsLoggedIn(true);
         setShowMainPage(true);
+        
+        // Load playlists after login
+        if (data.user?.id) {
+          try {
+            const playlistsRes = await fetch(`/api/playlists?userId=${data.user.id}`);
+            const playlistsData = await playlistsRes.json();
+            setPlaylists(playlistsData || []);
+          } catch (error) {
+            console.error('Error loading playlists:', error);
+          }
+        }
       } else {
         setLoginError(data.error || 'login failed');
       }
@@ -139,6 +167,17 @@ function App() {
         setPassword('');
         setIsLoggedIn(true);
         setShowMainPage(true);
+        
+        // Load playlists after signup
+        if (data.user?.id) {
+          try {
+            const playlistsRes = await fetch(`/api/playlists?userId=${data.user.id}`);
+            const playlistsData = await playlistsRes.json();
+            setPlaylists(playlistsData || []);
+          } catch (error) {
+            console.error('Error loading playlists:', error);
+          }
+        }
       } else {
         setLoginError(data.error || 'sign up failed');
       }
@@ -205,6 +244,63 @@ function App() {
   };
 
   const isAdmin = isLoggedIn && currentUser?.role === 'admin';
+  
+  const toggleAdminMode = () => {
+    setAdminMode(!adminMode);
+  };
+
+  // Helper function to upload image to Cloudinary
+  const uploadImageToCloudinary = async (file) => {
+    if (!file) return null;
+    
+    setUploadingImage(true);
+    try {
+      const formData = new FormData();
+      formData.append('image', file);
+      
+      const response = await fetch('/api/upload-image', {
+        method: 'POST',
+        body: formData,
+      });
+      
+      const data = await response.json();
+      setUploadingImage(false);
+      
+      if (data.success) {
+        return data.url;
+      } else {
+        alert(data.error || 'Failed to upload image');
+        return null;
+      }
+    } catch (error) {
+      console.error('Error uploading image:', error);
+      setUploadingImage(false);
+      alert('Error uploading image');
+      return null;
+    }
+  };
+
+  // Helper function to generate Google Maps URL and open it
+  const openGoogleMaps = (location) => {
+    // Validate location input
+    if (!location || typeof location !== 'string' || location.trim() === '') {
+      console.error('Invalid location provided to openGoogleMaps');
+      return;
+    }
+    
+    try {
+      // Encode the location to handle special characters (spaces, &, #, etc.)
+      const encodedLocation = encodeURIComponent(location.trim());
+      
+      // Generate Google Maps search URL
+      const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodedLocation}`;
+      
+      // Open in new tab only (never navigate current tab)
+      window.open(mapsUrl, '_blank', 'noopener,noreferrer');
+    } catch (error) {
+      console.error('Error opening Google Maps:', error);
+    }
+  };
 
   const handleDeleteAccount = async () => {
     if (!isLoggedIn || !currentUser?.id) {
@@ -414,6 +510,17 @@ function App() {
         setShows(showsData || []);
         setMerchItems(merchData || []);
         setAlbums(discsData || []);
+        
+        // Load playlists if user is logged in
+        if (isLoggedIn && currentUser?.id) {
+          try {
+            const playlistsRes = await fetch(`/api/playlists?userId=${currentUser.id}`);
+            const playlistsData = await playlistsRes.json();
+            setPlaylists(playlistsData || []);
+          } catch (error) {
+            console.error('Error loading playlists:', error);
+          }
+        }
 
         // Load songs for all albums so we can render multiple album blocks
         if (discsData && discsData.length > 0) {
@@ -1039,6 +1146,15 @@ function App() {
             <a href="#" className="nav-link" onClick={(e) => handleNavClick('about', e)}>about</a>
           </nav>
           <div className="header-icons">
+            {isAdmin && (
+              <button
+                className={`admin-mode-toggle ${adminMode ? 'admin-mode-active' : ''}`}
+                onClick={toggleAdminMode}
+                title={adminMode ? 'Exit Admin Mode' : 'Enter Admin Mode'}
+              >
+                {adminMode ? 'Exit Admin' : 'Admin'}
+              </button>
+            )}
             {isLoggedIn && (
               <div className="profile-icon-container">
                 {currentUser?.username && (
@@ -1140,7 +1256,7 @@ function App() {
           {activeSection === 'shows' && (
             <div className="content-section">
               <h2 className="section-title">Upcoming Shows</h2>
-              {isAdmin && (
+              {isAdmin && adminMode && (
                 <div className="admin-form">
                   <h3 className="admin-subtitle">Admin: Add new show</h3>
                   <form
@@ -1150,12 +1266,23 @@ function App() {
                       const date = formData.get('date');
                       const city = formData.get('city');
                       const venue = formData.get('venue');
+                      const location = formData.get('location')?.trim() || '';
                       const price = formData.get('price');
                       const availableSeats = formData.get('availableSeats');
+                      const imageFile = formData.get('image');
+                      const imageUrlInput = formData.get('imageUrl')?.trim() || '';
 
                       if (!date || !city) {
                         alert('Date and city are required');
                         return;
+                      }
+
+                      let imageUrl = null;
+                      if (imageUrlInput && imageUrlInput.trim() !== '') {
+                        imageUrl = imageUrlInput.trim();
+                      } else if (imageFile && imageFile.size > 0) {
+                        imageUrl = await uploadImageToCloudinary(imageFile);
+                        if (!imageUrl) return; // Upload failed, error already shown
                       }
 
                       try {
@@ -1167,8 +1294,10 @@ function App() {
                             date,
                             city,
                             venue,
+                            location: location || null,
                             price: price ? parseFloat(price) : null,
                             availableSeats: availableSeats ? parseInt(availableSeats, 10) : null,
+                            imageUrl: imageUrl || null,
                           }),
                         });
                         const data = await res.json();
@@ -1190,10 +1319,17 @@ function App() {
                     <input name="date" type="date" className="input-field admin-input" placeholder="Date" />
                     <input name="city" type="text" className="input-field admin-input" placeholder="City" />
                     <input name="venue" type="text" className="input-field admin-input" placeholder="Venue (optional)" />
+                    <input name="location" type="text" className="input-field admin-input" placeholder="Location/Address (optional)" />
                     <input name="price" type="number" step="0.01" className="input-field admin-input" placeholder="Price (optional)" />
                     <input name="availableSeats" type="number" className="input-field admin-input" placeholder="Available seats (optional)" />
-                    <button type="submit" className="btn-primary" style={{ padding: '0.6rem 1.2rem', marginTop: '0.5rem' }}>
-                      Add show
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      <label style={{ color: '#b0b0b0', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '1px' }}>Cloudinary Image Upload</label>
+                      <input name="image" type="file" accept="image/*" className="input-field admin-input" style={{ padding: '0.5rem' }} />
+                      <span style={{ color: '#b0b0b0', fontSize: '0.8rem', textAlign: 'center' }}>OR</span>
+                      <input name="imageUrl" type="text" className="input-field admin-input" placeholder="Paste Cloudinary URL here" />
+                    </div>
+                    <button type="submit" className="btn-primary" style={{ padding: '0.6rem 1.2rem', marginTop: '0.5rem' }} disabled={uploadingImage}>
+                      {uploadingImage ? 'Uploading...' : 'Add show'}
                     </button>
                   </form>
                 </div>
@@ -1241,19 +1377,31 @@ function App() {
                     }
                   })
                   .map((show) => {
-                    // Optional image for shows based on city
+                    // Use imageUrl from database if available, otherwise fall back to city-based images
                     let showImageUrl = null;
-                    if (show.city === 'Berlin') {
-                      showImageUrl = 'https://res.cloudinary.com/dui2htda9/image/upload/v1764679233/Museumsinsel_Berlin_Juli_2021_1__cropped__b_a14q3i.jpg';
-                    } else if (show.city === 'Paris') {
-                      showImageUrl = 'https://res.cloudinary.com/dui2htda9/image/upload/v1764679304/La_Tour_Eiffel_vue_de_la_Tour_Saint-Jacques__Paris_ao%C3%BBt_2014__2.jpg_pevt9m.webp';
-                    } else if (show.city === 'London') {
-                      showImageUrl = 'https://res.cloudinary.com/dui2htda9/image/upload/v1764679493/images_e6mbo7.jpg';
-                    } else if (show.city === 'Kutaisi') {
-                      showImageUrl = 'https://res.cloudinary.com/dui2htda9/image/upload/v1764679302/kutaisi_uzacwj.jpg';
-                    } else if (show.city === 'Tbilisi') {
-                      showImageUrl = 'https://res.cloudinary.com/dui2htda9/image/upload/v1764679303/merlin_138493119_dc17f17f-96a2-4487-a9ea-214914926374-articleLarge_venfii.webp';
+                    
+                    // Check if show has imageUrl from database
+                    if (show.imageUrl && typeof show.imageUrl === 'string' && show.imageUrl.trim() !== '') {
+                      showImageUrl = show.imageUrl.trim();
+                      console.log('Using database imageUrl for show', show.id, show.city, ':', showImageUrl);
+                    } else {
+                      // Fallback to hardcoded city images
+                      if (show.city === 'Berlin') {
+                        showImageUrl = 'https://res.cloudinary.com/dui2htda9/image/upload/v1764679233/Museumsinsel_Berlin_Juli_2021_1__cropped__b_a14q3i.jpg';
+                      } else if (show.city === 'Paris') {
+                        showImageUrl = 'https://res.cloudinary.com/dui2htda9/image/upload/v1764679304/La_Tour_Eiffel_vue_de_la_Tour_Saint-Jacques__Paris_ao%C3%BBt_2014__2.jpg_pevt9m.webp';
+                      } else if (show.city === 'London') {
+                        showImageUrl = 'https://res.cloudinary.com/dui2htda9/image/upload/v1764679493/images_e6mbo7.jpg';
+                      } else if (show.city === 'Kutaisi') {
+                        showImageUrl = 'https://res.cloudinary.com/dui2htda9/image/upload/v1764679302/kutaisi_uzacwj.jpg';
+                      } else if (show.city === 'Tbilisi') {
+                        showImageUrl = 'https://res.cloudinary.com/dui2htda9/image/upload/v1764679303/merlin_138493119_dc17f17f-96a2-4487-a9ea-214914926374-articleLarge_venfii.webp';
+                      }
                     }
+                    
+                    // Debug: log show data to console
+                    console.log('Show', show.id, show.city, '- imageUrl from DB:', show.imageUrl, '- final imageUrl:', showImageUrl);
+                    
 
                     return (
                       <div
@@ -1288,6 +1436,36 @@ function App() {
                               )
                             ) : null}
                           </div>
+                          {show.location && show.location.trim() !== '' && (
+                            <button
+                              type="button"
+                              className="btn-secondary"
+                              onClick={() => openGoogleMaps(show.location)}
+                              style={{
+                                marginTop: '0.5rem',
+                                padding: '0.5rem 1rem',
+                                background: 'rgba(63, 130, 157, 0.15)',
+                                border: '1px solid rgba(63, 130, 157, 0.3)',
+                                borderRadius: '6px',
+                                color: '#3F829D',
+                                fontSize: '0.9rem',
+                                cursor: 'pointer',
+                                transition: 'all 0.3s ease',
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.5px'
+                              }}
+                              onMouseEnter={(e) => {
+                                e.target.style.background = 'rgba(63, 130, 157, 0.25)';
+                                e.target.style.borderColor = 'rgba(63, 130, 157, 0.5)';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.target.style.background = 'rgba(63, 130, 157, 0.15)';
+                                e.target.style.borderColor = 'rgba(63, 130, 157, 0.3)';
+                              }}
+                            >
+                              See Location
+                            </button>
+                          )}
                         </div>
                         {isLoggedIn && (
                           <div className="show-actions">
@@ -1324,105 +1502,176 @@ function App() {
                             </button>
                           </div>
                         )}
-                        {isAdmin && (
+                        {isAdmin && adminMode && (
                           <div className="show-admin-actions">
-                            <button
-                              type="button"
-                              className="btn-secondary admin-btn"
-                              onClick={async () => {
-                                const newCity = window.prompt('New city name:', show.city || '');
-                                if (newCity === null) return;
-                                const newVenue = window.prompt('New venue name (optional):', show.venue || '');
-                                if (newVenue === null) return;
-                                try {
-                                  const res = await fetch(`/api/admin/shows/${show.id}`, {
-                                    method: 'PUT',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({
-                                      userId: currentUser?.id,
-                                      city: newCity,
-                                      venue: newVenue,
-                                    }),
-                                  });
-                                  const data = await res.json();
-                                  if (!data.success) {
-                                    alert(data.error || 'Could not update show');
+                            {editingShowId === show.id ? (
+                              <form
+                                className="inline-edit-form"
+                                onSubmit={async (e) => {
+                                  e.preventDefault();
+                                  const formData = new FormData(e.target);
+                                  const city = formData.get('city')?.trim() || '';
+                                  const venue = formData.get('venue')?.trim() || '';
+                                  const location = formData.get('location')?.trim() || '';
+                                  const priceInput = formData.get('price')?.trim() || '';
+                                  const price = priceInput ? parseFloat(priceInput) : null;
+                                  const imageFile = formData.get('image');
+                                  const imageUrlInput = formData.get('imageUrl')?.trim() || '';
+                                  
+                                  if (!city) {
+                                    alert('City is required');
                                     return;
                                   }
-                                  const showsRes = await fetch('/api/shows');
-                                  const showsData = await showsRes.json();
-                                  setShows(showsData || []);
-                                } catch (error) {
-                                  console.error('Error updating show:', error);
-                                  alert('Error updating show');
-                                }
-                              }}
-                            >
-                              Rename
-                            </button>
-                            <button
-                              type="button"
-                              className="btn-secondary admin-btn"
-                              onClick={async () => {
-                                const input = window.prompt('New price (number):', show.price != null ? String(show.price) : '');
-                                if (input === null) return;
-                                const value = parseFloat(input);
-                                if (Number.isNaN(value)) {
-                                  alert('Please enter a valid number');
-                                  return;
-                                }
-                                try {
-                                  const res = await fetch(`/api/admin/shows/${show.id}`, {
-                                    method: 'PUT',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({
-                                      userId: currentUser?.id,
-                                      price: value,
-                                    }),
-                                  });
-                                  const data = await res.json();
-                                  if (!data.success) {
-                                    alert(data.error || 'Could not update price');
+                                  if (priceInput && Number.isNaN(price)) {
+                                    alert('Please enter a valid price number');
                                     return;
                                   }
-                                  const showsRes = await fetch('/api/shows');
-                                  const showsData = await showsRes.json();
-                                  setShows(showsData || []);
-                                } catch (error) {
-                                  console.error('Error updating show price:', error);
-                                  alert('Error updating show price');
-                                }
-                              }}
-                            >
-                              Change price
-                            </button>
-                            <button
-                              type="button"
-                              className="delete-account-button admin-btn"
-                              onClick={async () => {
-                                if (!window.confirm('Are you sure you want to delete this show?')) return;
-                                try {
-                                  const res = await fetch(`/api/admin/shows/${show.id}`, {
-                                    method: 'DELETE',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ userId: currentUser?.id }),
-                                  });
-                                  const data = await res.json();
-                                  if (!data.success) {
-                                    alert(data.error || 'Could not delete show');
-                                    return;
+                                  
+                                  let imageUrl = null;
+                                  // Priority: URL input > file upload > keep existing
+                                  if (imageUrlInput && imageUrlInput.trim() !== '') {
+                                    imageUrl = imageUrlInput.trim();
+                                  } else if (imageFile && imageFile.size > 0) {
+                                    imageUrl = await uploadImageToCloudinary(imageFile);
+                                    if (!imageUrl) return; // Upload failed, error already shown
+                                  } else {
+                                    // Keep existing imageUrl if no new input
+                                    imageUrl = show.imageUrl || null;
                                   }
-                                  const showsRes = await fetch('/api/shows');
-                                  const showsData = await showsRes.json();
-                                  setShows(showsData || []);
-                                } catch (error) {
-                                  console.error('Error deleting show:', error);
-                                  alert('Error deleting show');
-                                }
-                              }}
-                            >
-                              Delete
-                            </button>
+                                  
+                                  console.log('Updating show', show.id, 'with imageUrl:', imageUrl, 'imageUrlInput was:', imageUrlInput);
+                                  
+                                  try {
+                                    const res = await fetch(`/api/admin/shows/${show.id}`, {
+                                      method: 'PUT',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({
+                                        userId: currentUser?.id,
+                                        city,
+                                        venue: venue || null,
+                                        location: location || null,
+                                        price: price || null,
+                                        imageUrl: imageUrl || null,
+                                      }),
+                                    });
+                                    const data = await res.json();
+                                    console.log('Update response:', data);
+                                    if (!data.success) {
+                                      alert(data.error || 'Could not update show');
+                                      return;
+                                    }
+                                    const showsRes = await fetch('/api/shows');
+                                    const showsData = await showsRes.json();
+                                    console.log('Reloaded shows. Show', show.id, 'has imageUrl:', showsData.find(s => s.id === show.id)?.imageUrl);
+                                    setShows(showsData || []);
+                                    setEditingShowId(null);
+                                  } catch (error) {
+                                    console.error('Error updating show:', error);
+                                    alert('Error updating show');
+                                  }
+                                }}
+                              >
+                                <div className="inline-edit-inputs">
+                                  <input
+                                    type="text"
+                                    name="city"
+                                    defaultValue={show.city || ''}
+                                    placeholder="City"
+                                    className="inline-edit-input"
+                                    required
+                                  />
+                                  <input
+                                    type="text"
+                                    name="venue"
+                                    defaultValue={show.venue || ''}
+                                    placeholder="Venue (optional)"
+                                    className="inline-edit-input"
+                                  />
+                                  <input
+                                    type="text"
+                                    name="location"
+                                    defaultValue={show.location || ''}
+                                    placeholder="Location/Address (optional)"
+                                    className="inline-edit-input"
+                                  />
+                                  <input
+                                    type="number"
+                                    name="price"
+                                    step="0.01"
+                                    defaultValue={show.price != null ? show.price : ''}
+                                    placeholder="Price (optional)"
+                                    className="inline-edit-input"
+                                  />
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', width: '100%' }}>
+                                    <label style={{ color: '#b0b0b0', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '1px' }}>Cloudinary Image Upload</label>
+                                    <input
+                                      type="file"
+                                      name="image"
+                                      accept="image/*"
+                                      className="inline-edit-input"
+                                      style={{ padding: '0.5rem' }}
+                                    />
+                                    <span style={{ color: '#b0b0b0', fontSize: '0.8rem', textAlign: 'center' }}>OR</span>
+                                    <input
+                                      type="text"
+                                      name="imageUrl"
+                                      defaultValue={show.imageUrl || ''}
+                                      placeholder="Paste Cloudinary URL here"
+                                      className="inline-edit-input"
+                                    />
+                                  </div>
+                                </div>
+                                <div className="inline-edit-buttons">
+                                  <button type="submit" className="btn-primary admin-btn" disabled={uploadingImage}>
+                                    {uploadingImage ? 'Uploading...' : 'Save'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="btn-secondary admin-btn"
+                                    onClick={() => setEditingShowId(null)}
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              </form>
+                            ) : (
+                              <>
+                                <button
+                                  type="button"
+                                  className="btn-secondary admin-btn"
+                                  onClick={() => setEditingShowId(show.id)}
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  className="delete-account-button admin-btn"
+                                  onClick={async () => {
+                                    if (!window.confirm('Are you sure you want to delete this show?')) return;
+                                    try {
+                                      const res = await fetch(`/api/admin/shows/${show.id}`, {
+                                        method: 'DELETE',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ userId: currentUser?.id }),
+                                      });
+                                      const data = await res.json();
+                                      if (!data.success) {
+                                        alert(data.error || 'Could not delete show');
+                                        return;
+                                      }
+                                      const showsRes = await fetch('/api/shows');
+                                      const showsData = await showsRes.json();
+                                      setShows(showsData || []);
+                                    } catch (error) {
+                                      console.error('Error deleting show:', error);
+                                      alert('Error deleting show');
+                                    }
+                                  }}
+                                >
+                                  Delete
+                                </button>
+                              </>
+                            )}
                           </div>
                         )}
                       </div>
@@ -1435,26 +1684,37 @@ function App() {
           {activeSection === 'discography' && (
             <div className="content-section">
               <h2 className="section-title">Discography</h2>
-              {isAdmin && (
+              {isAdmin && adminMode && (
                 <div className="admin-form discography-admin-form">
                   <h3 className="admin-subtitle">Admin: Albums</h3>
                   <div className="discography-admin-buttons">
-                    <button
-                      type="button"
-                      className="btn-primary admin-btn"
-                      onClick={async () => {
-                        const title = window.prompt('Album title:');
-                        if (title === null || title.trim() === '') return;
-                        const yearInput = window.prompt('Album year (optional):');
-                        if (yearInput === null) return;
-                        const coverImage = window.prompt('Cover image path (optional): (e.g. images/amao-cover.png)');
-                        if (coverImage === null) return;
+                    <form
+                      className="inline-edit-form"
+                      onSubmit={async (e) => {
+                        e.preventDefault();
+                        const formData = new FormData(e.target);
+                        const title = formData.get('title')?.trim() || '';
+                        const yearInput = formData.get('year')?.trim() || '';
+                        const imageFile = formData.get('image');
+                        const imageUrlInput = formData.get('imageUrl')?.trim() || '';
 
-                        const year =
-                          yearInput.trim() === '' ? null : parseInt(yearInput, 10);
-                        if (yearInput.trim() !== '' && Number.isNaN(year)) {
-                          alert('Please enter a valid year or leave empty.');
+                        if (!title) {
+                          alert('Title is required');
                           return;
+                        }
+
+                        const year = yearInput ? parseInt(yearInput, 10) : null;
+                        if (yearInput && Number.isNaN(year)) {
+                          alert('Please enter a valid year or leave empty');
+                          return;
+                        }
+
+                        let coverImage = null;
+                        if (imageUrlInput) {
+                          coverImage = imageUrlInput;
+                        } else if (imageFile && imageFile.size > 0) {
+                          coverImage = await uploadImageToCloudinary(imageFile);
+                          if (!coverImage) return; // Upload failed, error already shown
                         }
 
                         try {
@@ -1463,12 +1723,11 @@ function App() {
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
                               userId: currentUser?.id,
-                              title: title.trim(),
+                              title,
                               year,
-                              coverImage: coverImage || null,
+                              coverImage,
                             }),
                           });
-                          // Try to parse JSON, but also handle non-JSON errors
                           let data;
                           const contentType = res.headers.get('content-type') || '';
                           if (contentType.includes('application/json')) {
@@ -1487,14 +1746,51 @@ function App() {
                           const discsRes = await fetch('/api/discography');
                           const discsData = await discsRes.json();
                           setAlbums(discsData || []);
+                          e.target.reset();
                         } catch (error) {
                           console.error('Error creating album:', error);
                           alert('Error creating album');
                         }
                       }}
                     >
-                      Add album
-                    </button>
+                      <div className="inline-edit-inputs">
+                        <input
+                          type="text"
+                          name="title"
+                          placeholder="Album title"
+                          className="inline-edit-input"
+                          required
+                        />
+                        <input
+                          type="number"
+                          name="year"
+                          placeholder="Year (optional)"
+                          className="inline-edit-input"
+                        />
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', width: '100%' }}>
+                          <label style={{ color: '#b0b0b0', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '1px' }}>Cloudinary Image Upload</label>
+                          <input
+                            type="file"
+                            name="image"
+                            accept="image/*"
+                            className="inline-edit-input"
+                            style={{ padding: '0.5rem' }}
+                          />
+                          <span style={{ color: '#b0b0b0', fontSize: '0.8rem', textAlign: 'center' }}>OR</span>
+                          <input
+                            type="text"
+                            name="imageUrl"
+                            placeholder="Paste Cloudinary URL here"
+                            className="inline-edit-input"
+                          />
+                        </div>
+                      </div>
+                      <div className="inline-edit-buttons">
+                        <button type="submit" className="btn-primary admin-btn" disabled={uploadingImage}>
+                          {uploadingImage ? 'Uploading...' : 'Add album'}
+                        </button>
+                      </div>
+                    </form>
                   </div>
                 </div>
               )}
@@ -1508,59 +1804,121 @@ function App() {
                           {album.title}
                           {album.year ? ` (${album.year})` : ''}
                         </div>
-                        {isAdmin && (
+                        {isAdmin && adminMode && (
                           <div className="discography-admin-buttons" style={{ marginBottom: '1rem' }}>
-                            <button
-                              type="button"
-                              className="btn-secondary admin-btn"
-                              onClick={async () => {
-                                const newTitle = window.prompt('Album title:', album.title || '');
-                                if (newTitle === null) return;
-                                const newYearInput = window.prompt(
-                                  'Album year (optional):',
-                                  album.year != null ? String(album.year) : ''
-                                );
-                                if (newYearInput === null) return;
-                                const newCover = window.prompt(
-                                  'Cover image path (optional):',
-                                  album.coverImage || ''
-                                );
-                                if (newCover === null) return;
-
-                                const newYear =
-                                  newYearInput.trim() === '' ? null : parseInt(newYearInput, 10);
-                                if (newYearInput.trim() !== '' && Number.isNaN(newYear)) {
-                                  alert('Please enter a valid year (number) or leave empty.');
-                                  return;
-                                }
-
-                                try {
-                                  const res = await fetch(`/api/admin/albums/${album.id}`, {
-                                    method: 'PUT',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({
-                                      userId: currentUser?.id,
-                                      title: newTitle,
-                                      year: newYear,
-                                      coverImage: newCover || null,
-                                    }),
-                                  });
-                                  const data = await res.json();
-                                  if (!data.success) {
-                                    alert(data.error || 'Could not update album');
+                            {editingAlbumId === album.id ? (
+                              <form
+                                className="inline-edit-form"
+                                onSubmit={async (e) => {
+                                  e.preventDefault();
+                                  const formData = new FormData(e.target);
+                                  const title = formData.get('title')?.trim() || '';
+                                  const yearInput = formData.get('year')?.trim() || '';
+                                  const imageFile = formData.get('image');
+                                  const imageUrlInput = formData.get('imageUrl')?.trim() || '';
+                                  
+                                  if (!title) {
+                                    alert('Title is required');
                                     return;
                                   }
-                                  const discsRes = await fetch('/api/discography');
-                                  const discsData = await discsRes.json();
-                                  setAlbums(discsData || []);
-                                } catch (error) {
-                                  console.error('Error updating album:', error);
-                                  alert('Error updating album');
-                                }
-                              }}
-                            >
-                              Edit album
-                            </button>
+                                  
+                                  const year = yearInput ? parseInt(yearInput, 10) : null;
+                                  if (yearInput && Number.isNaN(year)) {
+                                    alert('Please enter a valid year (number) or leave empty');
+                                    return;
+                                  }
+                                  
+                                  let coverImage = album.coverImage || null;
+                                  if (imageUrlInput) {
+                                    coverImage = imageUrlInput;
+                                  } else if (imageFile && imageFile.size > 0) {
+                                    coverImage = await uploadImageToCloudinary(imageFile);
+                                    if (!coverImage) return; // Upload failed, error already shown
+                                  }
+                                  
+                                  try {
+                                    const res = await fetch(`/api/admin/albums/${album.id}`, {
+                                      method: 'PUT',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({
+                                        userId: currentUser?.id,
+                                        title,
+                                        year,
+                                        coverImage,
+                                      }),
+                                    });
+                                    const data = await res.json();
+                                    if (!data.success) {
+                                      alert(data.error || 'Could not update album');
+                                      return;
+                                    }
+                                    const discsRes = await fetch('/api/discography');
+                                    const discsData = await discsRes.json();
+                                    setAlbums(discsData || []);
+                                    setEditingAlbumId(null);
+                                  } catch (error) {
+                                    console.error('Error updating album:', error);
+                                    alert('Error updating album');
+                                  }
+                                }}
+                              >
+                                <div className="inline-edit-inputs">
+                                  <input
+                                    type="text"
+                                    name="title"
+                                    defaultValue={album.title || ''}
+                                    placeholder="Album title"
+                                    className="inline-edit-input"
+                                    required
+                                  />
+                                  <input
+                                    type="number"
+                                    name="year"
+                                    defaultValue={album.year != null ? album.year : ''}
+                                    placeholder="Year (optional)"
+                                    className="inline-edit-input"
+                                  />
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', width: '100%' }}>
+                                    <label style={{ color: '#b0b0b0', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '1px' }}>Cloudinary Image Upload</label>
+                                    <input
+                                      type="file"
+                                      name="image"
+                                      accept="image/*"
+                                      className="inline-edit-input"
+                                      style={{ padding: '0.5rem' }}
+                                    />
+                                    <span style={{ color: '#b0b0b0', fontSize: '0.8rem', textAlign: 'center' }}>OR</span>
+                                    <input
+                                      type="text"
+                                      name="imageUrl"
+                                      defaultValue={album.coverImage || ''}
+                                      placeholder="Paste Cloudinary URL here"
+                                      className="inline-edit-input"
+                                    />
+                                  </div>
+                                </div>
+                                <div className="inline-edit-buttons">
+                                  <button type="submit" className="btn-primary admin-btn" disabled={uploadingImage}>
+                                    {uploadingImage ? 'Uploading...' : 'Save'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="btn-secondary admin-btn"
+                                    onClick={() => setEditingAlbumId(null)}
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              </form>
+                            ) : (
+                              <button
+                                type="button"
+                                className="btn-secondary admin-btn"
+                                onClick={() => setEditingAlbumId(album.id)}
+                              >
+                                Edit album
+                              </button>
+                            )}
                             <button
                               type="button"
                               className="delete-account-button admin-btn"
@@ -1664,80 +2022,148 @@ function App() {
                                   </svg>
                                 </span>
                               )}
-                              {isAdmin && (
+                              {isAdmin && adminMode && (
                                 <div className="song-admin-actions">
-                                  <button
-                                    type="button"
-                                    className="btn-secondary admin-btn"
-                                    onClick={async () => {
-                                      const newTitle = window.prompt('New song title:', song.title || '');
-                                      if (newTitle === null) return;
-                                      const newDuration = window.prompt('New duration (e.g. 4:30):', song.duration || '');
-                                      if (newDuration === null) return;
-                                      const newTrackInput = window.prompt('New track number:', String(song.trackNumber || ''));
-                                      if (newTrackInput === null) return;
-                                      const newTrackNumber = parseInt(newTrackInput, 10);
-                                      if (Number.isNaN(newTrackNumber)) {
-                                        alert('Please enter a valid track number');
-                                        return;
-                                      }
-                                      const newAudioUrl = window.prompt('Audio URL (Cloudinary MP3 link, or leave empty):', song.audioUrl || '');
-                                      if (newAudioUrl === null) return;
-                                      try {
-                                        const res = await fetch(`/api/admin/songs/${song.id}`, {
-                                          method: 'PUT',
-                                          headers: { 'Content-Type': 'application/json' },
-                                          body: JSON.stringify({
-                                            userId: currentUser?.id,
-                                            title: newTitle,
-                                            duration: newDuration,
-                                            trackNumber: newTrackNumber,
-                                            audioUrl: newAudioUrl.trim() || null,
-                                          }),
-                                        });
-                                        const data = await res.json();
-                                        if (!data.success) {
-                                          alert(data.error || 'Could not update song');
+                                  {editingSongId === song.id ? (
+                                    <form
+                                      className="inline-edit-form"
+                                      onSubmit={async (e) => {
+                                        e.preventDefault();
+                                        const formData = new FormData(e.target);
+                                        const title = formData.get('title')?.trim() || '';
+                                        const duration = formData.get('duration')?.trim() || '';
+                                        const trackNumberInput = formData.get('trackNumber')?.trim() || '';
+                                        const audioUrl = formData.get('audioUrl')?.trim() || '';
+                                        const lyrics = formData.get('lyrics')?.trim() || '';
+                                        
+                                        if (!title || !duration) {
+                                          alert('Title and duration are required');
                                           return;
                                         }
-                                        const allSongsRes = await fetch('/api/songs');
-                                        const allSongsData = await allSongsRes.json();
-                                        setSongs(allSongsData || []);
-                                      } catch (error) {
-                                        console.error('Error updating song:', error);
-                                        alert('Error updating song');
-                                      }
-                                    }}
-                                  >
-                                    Edit
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="delete-account-button admin-btn"
-                                    onClick={async () => {
-                                      if (!window.confirm(`Delete song "${song.title}"?`)) return;
-                                      try {
-                                        const res = await fetch(`/api/admin/songs/${song.id}`, {
-                                          method: 'DELETE',
-                                          headers: { 'Content-Type': 'application/json' },
-                                          body: JSON.stringify({ userId: currentUser?.id }),
-                                        });
-                                        const data = await res.json();
-                                        if (!data.success) {
-                                          alert(data.error || 'Could not delete song');
+                                        const trackNumber = parseInt(trackNumberInput, 10);
+                                        if (Number.isNaN(trackNumber)) {
+                                          alert('Please enter a valid track number');
                                           return;
                                         }
-                                        const allSongsRes = await fetch('/api/songs');
-                                        const allSongsData = await allSongsRes.json();
-                                        setSongs(allSongsData || []);
-                                      } catch (error) {
-                                        console.error('Error deleting song:', error);
-                                        alert('Error deleting song');
-                                      }
-                                    }}
-                                  >
-                                    Delete
-                                  </button>
+                                        
+                                        try {
+                                          const res = await fetch(`/api/admin/songs/${song.id}`, {
+                                            method: 'PUT',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({
+                                              userId: currentUser?.id,
+                                              title,
+                                              duration,
+                                              trackNumber,
+                                              audioUrl: audioUrl || null,
+                                              lyrics: lyrics || null,
+                                            }),
+                                          });
+                                          const data = await res.json();
+                                          if (!data.success) {
+                                            alert(data.error || 'Could not update song');
+                                            return;
+                                          }
+                                          const allSongsRes = await fetch('/api/songs');
+                                          const allSongsData = await allSongsRes.json();
+                                          setSongs(allSongsData || []);
+                                          setEditingSongId(null);
+                                        } catch (error) {
+                                          console.error('Error updating song:', error);
+                                          alert('Error updating song');
+                                        }
+                                      }}
+                                    >
+                                      <div className="inline-edit-inputs">
+                                        <input
+                                          type="text"
+                                          name="title"
+                                          defaultValue={song.title || ''}
+                                          placeholder="Title"
+                                          className="inline-edit-input"
+                                          required
+                                        />
+                                        <input
+                                          type="text"
+                                          name="duration"
+                                          defaultValue={song.duration || ''}
+                                          placeholder="Duration (e.g. 4:30)"
+                                          className="inline-edit-input"
+                                          required
+                                        />
+                                        <input
+                                          type="number"
+                                          name="trackNumber"
+                                          defaultValue={song.trackNumber || ''}
+                                          placeholder="Track number"
+                                          className="inline-edit-input"
+                                          required
+                                        />
+                                        <input
+                                          type="text"
+                                          name="audioUrl"
+                                          defaultValue={song.audioUrl || ''}
+                                          placeholder="Audio URL (optional)"
+                                          className="inline-edit-input"
+                                        />
+                                        <textarea
+                                          name="lyrics"
+                                          defaultValue={song.lyrics || ''}
+                                          placeholder="Lyrics (optional)"
+                                          className="inline-edit-input"
+                                          rows={4}
+                                          style={{ resize: 'vertical' }}
+                                        />
+                                      </div>
+                                      <div className="inline-edit-buttons">
+                                        <button type="submit" className="btn-primary admin-btn">Save</button>
+                                        <button
+                                          type="button"
+                                          className="btn-secondary admin-btn"
+                                          onClick={() => setEditingSongId(null)}
+                                        >
+                                          Cancel
+                                        </button>
+                                      </div>
+                                    </form>
+                                  ) : (
+                                    <>
+                                      <button
+                                        type="button"
+                                        className="btn-secondary admin-btn"
+                                        onClick={() => setEditingSongId(song.id)}
+                                      >
+                                        Edit
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="delete-account-button admin-btn"
+                                        onClick={async () => {
+                                          if (!window.confirm(`Delete song "${song.title}"?`)) return;
+                                          try {
+                                            const res = await fetch(`/api/admin/songs/${song.id}`, {
+                                              method: 'DELETE',
+                                              headers: { 'Content-Type': 'application/json' },
+                                              body: JSON.stringify({ userId: currentUser?.id }),
+                                            });
+                                            const data = await res.json();
+                                            if (!data.success) {
+                                              alert(data.error || 'Could not delete song');
+                                              return;
+                                            }
+                                            const allSongsRes = await fetch('/api/songs');
+                                            const allSongsData = await allSongsRes.json();
+                                            setSongs(allSongsData || []);
+                                          } catch (error) {
+                                            console.error('Error deleting song:', error);
+                                            alert('Error deleting song');
+                                          }
+                                        }}
+                                      >
+                                        Delete
+                                      </button>
+                                    </>
+                                  )}
                                 </div>
                               )}
                             </div>
@@ -1748,55 +2174,117 @@ function App() {
                               No songs yet for this album.
                             </div>
                           )}
-                          {isAdmin && (
+                          {isAdmin && adminMode && (
                             <div className="song-admin-add">
-                              <button
-                                type="button"
-                                className="btn-primary"
-                                style={{ marginTop: '1rem' }}
-                                onClick={async () => {
-                                  const title = window.prompt('Song title:');
-                                  if (title === null || title.trim() === '') return;
-                                  const duration = window.prompt('Duration (e.g. 4:30):');
-                                  if (duration === null || duration.trim() === '') return;
-                                  const trackInput = window.prompt('Track number:');
-                                  if (trackInput === null) return;
-                                  const trackNumber = parseInt(trackInput, 10);
-                                  if (Number.isNaN(trackNumber)) {
-                                    alert('Please enter a valid track number');
-                                    return;
-                                  }
-                                  const audioUrl = window.prompt('Audio URL (Cloudinary MP3 link, or leave empty):', '');
-                                  if (audioUrl === null) return;
-                                  try {
-                                    const res = await fetch('/api/admin/songs', {
-                                      method: 'POST',
-                                      headers: { 'Content-Type': 'application/json' },
-                                      body: JSON.stringify({
-                                        userId: currentUser?.id,
-                                        albumId: album.id,
-                                        title: title.trim(),
-                                        duration: duration.trim(),
-                                        trackNumber,
-                                        audioUrl: audioUrl.trim() || null,
-                                      }),
-                                    });
-                                    const data = await res.json();
-                                    if (!data.success) {
-                                      alert(data.error || 'Could not create song');
+                              {addingSongToAlbumId === album.id ? (
+                                <form
+                                  className="inline-edit-form"
+                                  onSubmit={async (e) => {
+                                    e.preventDefault();
+                                    const formData = new FormData(e.target);
+                                    const title = formData.get('title')?.trim() || '';
+                                    const duration = formData.get('duration')?.trim() || '';
+                                    const trackNumberInput = formData.get('trackNumber')?.trim() || '';
+                                    const audioUrl = formData.get('audioUrl')?.trim() || '';
+                                    const lyrics = formData.get('lyrics')?.trim() || '';
+                                    
+                                    if (!title || !duration) {
+                                      alert('Title and duration are required');
                                       return;
                                     }
-                                    const allSongsRes = await fetch('/api/songs');
-                                    const allSongsData = await allSongsRes.json();
-                                    setSongs(allSongsData || []);
-                                  } catch (error) {
-                                    console.error('Error creating song:', error);
-                                    alert('Error creating song');
-                                  }
-                                }}
-                              >
-                                Add song
-                              </button>
+                                    const trackNumber = parseInt(trackNumberInput, 10);
+                                    if (Number.isNaN(trackNumber)) {
+                                      alert('Please enter a valid track number');
+                                      return;
+                                    }
+                                    
+                                    try {
+                                      const res = await fetch('/api/admin/songs', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({
+                                          userId: currentUser?.id,
+                                          albumId: album.id,
+                                          title,
+                                          duration,
+                                          trackNumber,
+                                          audioUrl: audioUrl || null,
+                                          lyrics: lyrics || null,
+                                        }),
+                                      });
+                                      const data = await res.json();
+                                      if (!data.success) {
+                                        alert(data.error || 'Could not create song');
+                                        return;
+                                      }
+                                      const allSongsRes = await fetch('/api/songs');
+                                      const allSongsData = await allSongsRes.json();
+                                      setSongs(allSongsData || []);
+                                      setAddingSongToAlbumId(null);
+                                      e.target.reset();
+                                    } catch (error) {
+                                      console.error('Error creating song:', error);
+                                      alert('Error creating song');
+                                    }
+                                  }}
+                                >
+                                  <div className="inline-edit-inputs">
+                                    <input
+                                      type="text"
+                                      name="title"
+                                      placeholder="Song title"
+                                      className="inline-edit-input"
+                                      required
+                                    />
+                                    <input
+                                      type="text"
+                                      name="duration"
+                                      placeholder="Duration (e.g. 4:30)"
+                                      className="inline-edit-input"
+                                      required
+                                    />
+                                    <input
+                                      type="number"
+                                      name="trackNumber"
+                                      placeholder="Track number"
+                                      className="inline-edit-input"
+                                      required
+                                    />
+                                    <input
+                                      type="text"
+                                      name="audioUrl"
+                                      placeholder="Audio URL (optional)"
+                                      className="inline-edit-input"
+                                    />
+                                    <textarea
+                                      name="lyrics"
+                                      placeholder="Lyrics (optional)"
+                                      className="inline-edit-input"
+                                      rows={4}
+                                      style={{ resize: 'vertical' }}
+                                    />
+                                  </div>
+                                  <div className="inline-edit-buttons">
+                                    <button type="submit" className="btn-primary admin-btn">Add Song</button>
+                                    <button
+                                      type="button"
+                                      className="btn-secondary admin-btn"
+                                      onClick={() => setAddingSongToAlbumId(null)}
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                </form>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="btn-primary"
+                                  style={{ marginTop: '1rem' }}
+                                  onClick={() => setAddingSongToAlbumId(album.id)}
+                                >
+                                  Add song
+                                </button>
+                              )}
                             </div>
                           )}
                         </div>
@@ -1809,6 +2297,517 @@ function App() {
                     <div>No albums found</div>
                   </div>
                 )}
+                
+                {/* Playlists Section */}
+                {isLoggedIn && (
+                  <div style={{ marginTop: '3rem', paddingTop: '3rem', borderTop: '1px solid rgba(63, 130, 157, 0.2)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem', flexWrap: 'wrap', gap: '1rem' }}>
+                      <h2 className="section-title" style={{ margin: 0 }}>My Playlists</h2>
+                      <div style={{ display: 'flex', gap: '0.5rem' }}>
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          onClick={() => {
+                            setShowOtherPlaylists(!showOtherPlaylists);
+                            if (!showOtherPlaylists && publicPlaylists.length === 0) {
+                              // Load public playlists if not loaded yet
+                              fetch(`/api/playlists/public?excludeUserId=${currentUser.id}`)
+                                .then(res => res.json())
+                                .then(data => setPublicPlaylists(data || []))
+                                .catch(err => console.error('Error loading public playlists:', err));
+                            }
+                          }}
+                          style={{
+                            padding: '0.6rem 1.5rem',
+                            background: 'rgba(63, 130, 157, 0.15)',
+                            border: '1px solid rgba(63, 130, 157, 0.3)',
+                            borderRadius: '8px',
+                            color: '#3F829D',
+                            transition: 'all 0.3s ease'
+                          }}
+                        >
+                          {showOtherPlaylists ? 'Hide' : 'Other Playlists'}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-primary"
+                          onClick={() => setShowCreatePlaylistModal(true)}
+                          style={{
+                            padding: '0.6rem 1.5rem',
+                            background: 'rgba(63, 130, 157, 0.2)',
+                            border: '1px solid rgba(63, 130, 157, 0.4)',
+                            borderRadius: '8px',
+                            color: '#3F829D',
+                            transition: 'all 0.3s ease'
+                          }}
+                        >
+                          Create Playlist
+                        </button>
+                      </div>
+                    </div>
+                    
+                    {/* Other Playlists Section */}
+                    {showOtherPlaylists && (
+                      <div style={{ marginBottom: '3rem', paddingBottom: '2rem', borderBottom: '1px solid rgba(63, 130, 157, 0.2)' }}>
+                        <h3 className="section-title" style={{ fontSize: '1.5rem', marginBottom: '1.5rem' }}>Other Playlists</h3>
+                        {publicPlaylists.length > 0 ? (
+                          <div>
+                            {publicPlaylists.map((userGroup) => (
+                              <div key={userGroup.username || userGroup.email} style={{ marginBottom: '2.5rem' }}>
+                                <h4 style={{ 
+                                  color: '#3F829D', 
+                                  fontSize: '1.2rem', 
+                                  marginBottom: '1rem',
+                                  textTransform: 'uppercase',
+                                  letterSpacing: '1px'
+                                }}>
+                                  {userGroup.username || userGroup.email || 'Unknown User'}
+                                </h4>
+                                {userGroup.playlists.map((playlist) => (
+                                  <div key={playlist.id} className="album-card" style={{ 
+                                    marginBottom: '1.5rem',
+                                    background: 'rgba(0, 0, 0, 0.3)',
+                                    border: '1px solid rgba(63, 130, 157, 0.2)',
+                                    borderRadius: '12px',
+                                    padding: '1.5rem'
+                                  }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', marginBottom: '1rem' }}>
+                                      {playlist.imageUrl && (
+                                        <img 
+                                          src={playlist.imageUrl} 
+                                          alt={playlist.name}
+                                          style={{ 
+                                            width: '120px', 
+                                            height: '120px', 
+                                            objectFit: 'cover', 
+                                            borderRadius: '10px',
+                                            border: '1px solid rgba(63, 130, 157, 0.3)',
+                                            boxShadow: '0 4px 15px rgba(0, 0, 0, 0.5)'
+                                          }}
+                                        />
+                                      )}
+                                      <div style={{ flex: 1 }}>
+                                        <div className="album-title" style={{ marginBottom: '0.5rem' }}>{playlist.name}</div>
+                                        <div style={{ color: '#b0b0b0', fontSize: '0.9rem' }}>
+                                          {playlist.songs?.length || 0} {playlist.songs?.length === 1 ? 'song' : 'songs'}
+                                        </div>
+                                      </div>
+                                    </div>
+                                    {playlist.songs && playlist.songs.length > 0 && (
+                                      <ul className="songs-list">
+                                        {[...playlist.songs].sort((a, b) => (a.position || 0) - (b.position || 0)).map((song, index) => (
+                                          <li key={song.id} className="song-item" style={{ 
+                                            display: 'flex', 
+                                            alignItems: 'center', 
+                                            justifyContent: 'flex-start',
+                                            padding: '0.8rem',
+                                            marginBottom: '0.5rem',
+                                            background: 'rgba(0, 0, 0, 0.3)',
+                                            border: '1px solid rgba(63, 130, 157, 0.2)',
+                                            borderRadius: '8px',
+                                            transition: 'all 0.3s ease'
+                                          }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flex: 1 }}>
+                                              <span style={{ 
+                                                color: 'rgba(63, 130, 157, 0.6)', 
+                                                fontSize: '0.9rem',
+                                                minWidth: '30px',
+                                                fontFamily: 'monospace'
+                                              }}>
+                                                {String(index + 1).padStart(2, '0')}
+                                              </span>
+                                              <span 
+                                                className="song-title" 
+                                                onClick={() => {
+                                                  setSelectedSong(song.id);
+                                                  setShowRatingModal(true);
+                                                }}
+                                                style={{ 
+                                                  cursor: 'pointer',
+                                                  color: '#e0e0e0',
+                                                  fontSize: '1rem',
+                                                  flex: 1
+                                                }}
+                                              >
+                                                {song.title}
+                                              </span>
+                                              <span className="song-duration" style={{ color: '#b0b0b0', fontSize: '0.9rem' }}>
+                                                {song.duration}
+                                              </span>
+                                            </div>
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div style={{ color: '#b0b0b0', textAlign: 'center', padding: '2rem' }}>
+                            No public playlists available yet.
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    
+                    {playlists.length > 0 ? (
+                      <div>
+                        {playlists.map((playlist) => (
+                          <div key={playlist.id} className="album-card" style={{ 
+                            marginBottom: '2.5rem',
+                            background: 'rgba(0, 0, 0, 0.3)',
+                            border: '1px solid rgba(63, 130, 157, 0.2)',
+                            borderRadius: '12px',
+                            padding: '1.5rem'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', marginBottom: '1.5rem' }}>
+                              {playlist.imageUrl && (
+                                <img 
+                                  src={playlist.imageUrl} 
+                                  alt={playlist.name}
+                                  style={{ 
+                                    width: '120px', 
+                                    height: '120px', 
+                                    objectFit: 'cover', 
+                                    borderRadius: '10px',
+                                    border: '1px solid rgba(63, 130, 157, 0.3)',
+                                    boxShadow: '0 4px 15px rgba(0, 0, 0, 0.5)'
+                                  }}
+                                />
+                              )}
+                              <div style={{ flex: 1 }}>
+                                <div className="album-title" style={{ marginBottom: '0.5rem' }}>{playlist.name}</div>
+                                <div style={{ color: '#b0b0b0', fontSize: '0.9rem' }}>
+                                  {playlist.songs?.length || 0} {playlist.songs?.length === 1 ? 'song' : 'songs'}
+                                </div>
+                              </div>
+                              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                                <button
+                                  type="button"
+                                  className="btn-secondary"
+                                  onClick={() => {
+                                    setSelectedPlaylistId(playlist.id);
+                                    setShowAddSongsModal(true);
+                                  }}
+                                  style={{
+                                    padding: '0.5rem 1rem',
+                                    background: 'rgba(63, 130, 157, 0.15)',
+                                    border: '1px solid rgba(63, 130, 157, 0.3)',
+                                    borderRadius: '6px',
+                                    color: '#3F829D',
+                                    transition: 'all 0.3s ease'
+                                  }}
+                                >
+                                  Add Songs
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn-secondary"
+                                  onClick={() => setEditingPlaylistId(playlist.id)}
+                                  style={{
+                                    padding: '0.5rem 1rem',
+                                    background: 'rgba(63, 130, 157, 0.15)',
+                                    border: '1px solid rgba(63, 130, 157, 0.3)',
+                                    borderRadius: '6px',
+                                    color: '#3F829D',
+                                    transition: 'all 0.3s ease'
+                                  }}
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  className="delete-account-button"
+                                  onClick={async () => {
+                                    if (!window.confirm(`Delete playlist "${playlist.name}"?`)) return;
+                                    try {
+                                      const res = await fetch(`/api/playlists/${playlist.id}`, {
+                                        method: 'DELETE',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ userId: currentUser?.id }),
+                                      });
+                                      const data = await res.json();
+                                      if (!data.success) {
+                                        alert(data.error || 'Could not delete playlist');
+                                        return;
+                                      }
+                                      const playlistsRes = await fetch(`/api/playlists?userId=${currentUser.id}`);
+                                      const playlistsData = await playlistsRes.json();
+                                      setPlaylists(playlistsData || []);
+                                    } catch (error) {
+                                      console.error('Error deleting playlist:', error);
+                                      alert('Error deleting playlist');
+                                    }
+                                  }}
+                                  style={{
+                                    padding: '0.5rem 1rem',
+                                    background: 'rgba(220, 53, 69, 0.15)',
+                                    border: '1px solid rgba(220, 53, 69, 0.3)',
+                                    borderRadius: '6px',
+                                    color: 'rgba(220, 53, 69, 0.9)',
+                                    transition: 'all 0.3s ease'
+                                  }}
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            </div>
+                            
+                            {editingPlaylistId === playlist.id ? (
+                              <form
+                                className="inline-edit-form"
+                                onSubmit={async (e) => {
+                                  e.preventDefault();
+                                  const formData = new FormData(e.target);
+                                  const name = formData.get('name')?.trim() || '';
+                                  const imageFile = formData.get('image');
+                                  const imageUrlInput = formData.get('imageUrl')?.trim() || '';
+                                  
+                                  // Get checkbox value directly from the form element
+                                  const isPublicCheckbox = e.target.querySelector('input[name="isPublic"]');
+                                  const isPublic = isPublicCheckbox ? isPublicCheckbox.checked : (playlist.isPublic || false);
+                                  
+                                  console.log('Updating playlist:', { 
+                                    name, 
+                                    isPublic, 
+                                    checkboxExists: !!isPublicCheckbox,
+                                    checkboxChecked: isPublicCheckbox?.checked,
+                                    currentPlaylistIsPublic: playlist.isPublic 
+                                  });
+                                  
+                                  if (!name) {
+                                    alert('Name is required');
+                                    return;
+                                  }
+                                  
+                                  let imageUrl = playlist.imageUrl || null;
+                                  if (imageUrlInput) {
+                                    imageUrl = imageUrlInput;
+                                  } else if (imageFile && imageFile.size > 0) {
+                                    imageUrl = await uploadImageToCloudinary(imageFile);
+                                    if (!imageUrl) return;
+                                  }
+                                  
+                                  try {
+                                    // Always include isPublic in the update, even if false
+                                    const updateData = {
+                                      userId: currentUser?.id,
+                                      name: name || playlist.name, // Use existing name if empty
+                                      imageUrl: imageUrl !== undefined ? imageUrl : playlist.imageUrl,
+                                      isPublic: isPublic, // Explicitly send boolean (true or false)
+                                    };
+                                    console.log('Sending playlist update:', updateData);
+                                    console.log('isPublic value:', isPublic, 'type:', typeof isPublic);
+                                    console.log('Checkbox element:', isPublicCheckbox);
+                                    console.log('Checkbox checked state:', isPublicCheckbox?.checked);
+                                    
+                                    const res = await fetch(`/api/playlists/${playlist.id}`, {
+                                      method: 'PUT',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify(updateData),
+                                    });
+                                    const data = await res.json();
+                                    console.log('Update response:', data);
+                                    if (!data.success) {
+                                      alert(data.error || 'Could not update playlist');
+                                      return;
+                                    }
+                                    
+                                    // Reload playlists to get updated isPublic value
+                                    const playlistsRes = await fetch(`/api/playlists?userId=${currentUser.id}`);
+                                    const playlistsData = await playlistsRes.json();
+                                    setPlaylists(playlistsData || []);
+                                    
+                                    // Reload public playlists
+                                    try {
+                                      const publicRes = await fetch(`/api/playlists/public?excludeUserId=${currentUser.id}`);
+                                      if (!publicRes.ok) {
+                                        console.error('Failed to load public playlists:', publicRes.status, publicRes.statusText);
+                                        const errorData = await publicRes.json();
+                                        console.error('Error details:', errorData);
+                                      } else {
+                                        const publicData = await publicRes.json();
+                                        console.log('Public playlists loaded:', publicData);
+                                        setPublicPlaylists(publicData || []);
+                                      }
+                                    } catch (err) {
+                                      console.error('Error loading public playlists:', err);
+                                    }
+                                    
+                                    setEditingPlaylistId(null);
+                                  } catch (error) {
+                                    console.error('Error updating playlist:', error);
+                                    alert('Error updating playlist');
+                                  }
+                                }}
+                              >
+                                <div className="inline-edit-inputs">
+                                  <input
+                                    type="text"
+                                    name="name"
+                                    defaultValue={playlist.name || ''}
+                                    placeholder="Playlist name"
+                                    className="inline-edit-input"
+                                    required
+                                  />
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', width: '100%' }}>
+                                    <label style={{ color: '#b0b0b0', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '1px' }}>Cloudinary Image Upload</label>
+                                    <input
+                                      type="file"
+                                      name="image"
+                                      accept="image/*"
+                                      className="inline-edit-input"
+                                      style={{ padding: '0.5rem' }}
+                                    />
+                                    <span style={{ color: '#b0b0b0', fontSize: '0.8rem', textAlign: 'center' }}>OR</span>
+                                    <input
+                                      type="text"
+                                      name="imageUrl"
+                                      defaultValue={playlist.imageUrl || ''}
+                                      placeholder="Paste Cloudinary URL here"
+                                      className="inline-edit-input"
+                                    />
+                                  </div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', width: '100%', padding: '0.5rem 0' }}>
+                                    <label style={{ color: '#b0b0b0', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '1px', display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                                      <input
+                                        type="checkbox"
+                                        name="isPublic"
+                                        defaultChecked={playlist.isPublic === true}
+                                        value="true"
+                                        style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                                      />
+                                      Public Playlist
+                                    </label>
+                                    <span style={{ color: '#666', fontSize: '0.75rem', fontStyle: 'italic' }}>
+                                      (Other users can see and use this playlist)
+                                    </span>
+                                  </div>
+                                </div>
+                                <div className="inline-edit-buttons">
+                                  <button type="submit" className="btn-primary admin-btn" disabled={uploadingImage}>
+                                    {uploadingImage ? 'Uploading...' : 'Save'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="btn-secondary admin-btn"
+                                    onClick={() => setEditingPlaylistId(null)}
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              </form>
+                            ) : (
+                              <div>
+                                {playlist.songs && playlist.songs.length > 0 ? (
+                                  <ul className="songs-list">
+                                    {[...playlist.songs].sort((a, b) => (a.position || 0) - (b.position || 0)).map((song, index) => (
+                                      <li key={song.id} className="song-item" style={{ 
+                                        display: 'flex', 
+                                        alignItems: 'center', 
+                                        justifyContent: editingPlaylistId === playlist.id ? 'space-between' : 'flex-start',
+                                        padding: '0.8rem',
+                                        marginBottom: '0.5rem',
+                                        background: 'rgba(0, 0, 0, 0.3)',
+                                        border: '1px solid rgba(63, 130, 157, 0.2)',
+                                        borderRadius: '8px',
+                                        transition: 'all 0.3s ease'
+                                      }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flex: 1 }}>
+                                          <span style={{ 
+                                            color: 'rgba(63, 130, 157, 0.6)', 
+                                            fontSize: '0.9rem',
+                                            minWidth: '30px',
+                                            fontFamily: 'monospace'
+                                          }}>
+                                            {String(index + 1).padStart(2, '0')}
+                                          </span>
+                                          <span 
+                                            className="song-title" 
+                                            onClick={() => {
+                                              setSelectedSong(song.id);
+                                              setShowRatingModal(true);
+                                            }}
+                                            style={{ 
+                                              cursor: 'pointer',
+                                              color: '#e0e0e0',
+                                              fontSize: '1rem',
+                                              flex: 1
+                                            }}
+                                          >
+                                            {song.title}
+                                          </span>
+                                          <span className="song-duration" style={{ color: '#b0b0b0', fontSize: '0.9rem' }}>
+                                            {song.duration}
+                                          </span>
+                                        </div>
+                                        {editingPlaylistId === playlist.id && (
+                                          <button
+                                            type="button"
+                                            className="delete-account-button"
+                                            style={{ 
+                                              padding: '0.4rem 0.8rem', 
+                                              fontSize: '0.85rem',
+                                              background: 'rgba(220, 53, 69, 0.2)',
+                                              border: '1px solid rgba(220, 53, 69, 0.4)',
+                                              borderRadius: '6px',
+                                              color: 'rgba(220, 53, 69, 0.9)',
+                                              transition: 'all 0.3s ease'
+                                            }}
+                                            onMouseEnter={(e) => {
+                                              e.target.style.background = 'rgba(220, 53, 69, 0.3)';
+                                              e.target.style.borderColor = 'rgba(220, 53, 69, 0.6)';
+                                            }}
+                                            onMouseLeave={(e) => {
+                                              e.target.style.background = 'rgba(220, 53, 69, 0.2)';
+                                              e.target.style.borderColor = 'rgba(220, 53, 69, 0.4)';
+                                            }}
+                                            onClick={async () => {
+                                              try {
+                                                const res = await fetch(`/api/playlists/${playlist.id}/songs/${song.id}`, {
+                                                  method: 'DELETE',
+                                                  headers: { 'Content-Type': 'application/json' },
+                                                  body: JSON.stringify({ userId: currentUser?.id }),
+                                                });
+                                                const data = await res.json();
+                                                if (!data.success) {
+                                                  alert(data.error || 'Could not remove song');
+                                                  return;
+                                                }
+                                                const playlistsRes = await fetch(`/api/playlists?userId=${currentUser.id}`);
+                                                const playlistsData = await playlistsRes.json();
+                                                setPlaylists(playlistsData || []);
+                                              } catch (error) {
+                                                console.error('Error removing song:', error);
+                                                alert('Error removing song');
+                                              }
+                                            }}
+                                          >
+                                            Remove
+                                          </button>
+                                        )}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                ) : (
+                                  <div style={{ color: '#b0b0b0', padding: '1rem', textAlign: 'center' }}>
+                                    No songs in this playlist yet. Click "Add Songs" to add some!
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div style={{ color: '#b0b0b0', textAlign: 'center', padding: '2rem' }}>
+                        No playlists yet. Create your first playlist!
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -1816,7 +2815,7 @@ function App() {
           {activeSection === 'merch' && (
             <div className="content-section">
               <h2 className="section-title">Merchandise</h2>
-              {isAdmin && (
+              {isAdmin && adminMode && (
                 <div className="admin-form">
                   <h3 className="admin-subtitle">Admin: Add new merch item</h3>
                   <form
@@ -1828,6 +2827,7 @@ function App() {
                       const type = formData.get('type');
                       const variant = formData.get('variant');
                       const availableQuantity = formData.get('availableQuantity');
+                      const imageFile = formData.get('image');
 
                       if (!name || !price) {
                         alert('Name and price are required');
@@ -1849,6 +2849,12 @@ function App() {
                         return;
                       }
 
+                      let imageUrl = null;
+                      if (imageFile && imageFile.size > 0) {
+                        imageUrl = await uploadImageToCloudinary(imageFile);
+                        if (!imageUrl) return; // Upload failed, error already shown
+                      }
+
                       try {
                         const res = await fetch('/api/admin/merch', {
                           method: 'POST',
@@ -1860,6 +2866,7 @@ function App() {
                             type: type || null,
                             variant: variant || null,
                             availableQuantity: qtyValue,
+                            imageUrl,
                           }),
                         });
                         const data = await res.json();
@@ -1883,8 +2890,14 @@ function App() {
                     <input name="type" type="text" className="input-field admin-input" placeholder="Type (shirt, vinyl, guitar...)" />
                     <input name="variant" type="text" className="input-field admin-input" placeholder="Variant (optional)" />
                     <input name="availableQuantity" type="number" className="input-field admin-input" placeholder="Available quantity (optional)" />
-                    <button type="submit" className="btn-primary" style={{ padding: '0.6rem 1.2rem', marginTop: '0.5rem' }}>
-                      Add merch item
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      <label style={{ color: '#b0b0b0', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '1px' }}>Cloudinary Image Upload</label>
+                      <input name="image" type="file" accept="image/*" className="input-field admin-input" style={{ padding: '0.5rem' }} />
+                      <span style={{ color: '#b0b0b0', fontSize: '0.8rem', textAlign: 'center' }}>OR</span>
+                      <input name="imageUrl" type="text" className="input-field admin-input" placeholder="Paste Cloudinary URL here" />
+                    </div>
+                    <button type="submit" className="btn-primary" style={{ padding: '0.6rem 1.2rem', marginTop: '0.5rem' }} disabled={uploadingImage}>
+                      {uploadingImage ? 'Uploading...' : 'Add merch item'}
                     </button>
                   </form>
                 </div>
@@ -2055,85 +3068,169 @@ function App() {
                               : 'Get'}
                           </button>
                         )}
-                        {isAdmin && (
+                        {isAdmin && adminMode && (
                           <div className="show-admin-actions" style={{ marginTop: '0.5rem' }}>
-                            <button
-                              type="button"
-                              className="btn-secondary admin-btn"
-                              onClick={async () => {
-                                const newName = window.prompt('New merch name:', item.name || '');
-                                if (newName === null) return;
-                                const newPriceInput = window.prompt('New price:', String(item.price || ''));
-                                if (newPriceInput === null) return;
-                                const newPrice = parseFloat(newPriceInput);
-                                if (Number.isNaN(newPrice)) {
-                                  alert('Please enter a valid price');
-                                  return;
-                                }
-                                const newQtyInput = window.prompt('New available quantity (optional):', item.availableQuantity != null ? String(item.availableQuantity) : '');
-                                if (newQtyInput === null) return;
-                                const newQty =
-                                  newQtyInput.trim() === ''
-                                    ? undefined
-                                    : parseInt(newQtyInput, 10);
-                                if (newQtyInput.trim() !== '' && Number.isNaN(newQty)) {
-                                  alert('Please enter a valid quantity');
-                                  return;
-                                }
-                                try {
-                                  const res = await fetch(`/api/admin/merch/${item.id}`, {
-                                    method: 'PUT',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({
-                                      userId: currentUser?.id,
-                                      name: newName,
-                                      price: newPrice,
-                                      availableQuantity: newQty,
-                                    }),
-                                  });
-                                  const data = await res.json();
-                                  if (!data.success) {
-                                    alert(data.error || 'Could not update merch item');
+                            {editingMerchId === item.id ? (
+                              <form
+                                className="inline-edit-form"
+                                onSubmit={async (e) => {
+                                  e.preventDefault();
+                                  const formData = new FormData(e.target);
+                                  const name = formData.get('name')?.trim() || '';
+                                  const priceInput = formData.get('price')?.trim() || '';
+                                  const availableQuantityInput = formData.get('availableQuantity')?.trim() || '';
+                                  
+                                  if (!name || !priceInput) {
+                                    alert('Name and price are required');
                                     return;
                                   }
-                                  const merchRes = await fetch('/api/merch');
-                                  const merchData = await merchRes.json();
-                                  setMerchItems(merchData || []);
-                                } catch (error) {
-                                  console.error('Error updating merch item:', error);
-                                  alert('Error updating merch item');
-                                }
-                              }}
-                            >
-                              Edit
-                            </button>
-                            <button
-                              type="button"
-                              className="delete-account-button admin-btn"
-                              onClick={async () => {
-                                if (!window.confirm(`Delete merch item "${item.name}"?`)) return;
-                                try {
-                                  const res = await fetch(`/api/admin/merch/${item.id}`, {
-                                    method: 'DELETE',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ userId: currentUser?.id }),
-                                  });
-                                  const data = await res.json();
-                                  if (!data.success) {
-                                    alert(data.error || 'Could not delete merch item');
+                                  
+                                  const price = parseFloat(priceInput);
+                                  if (Number.isNaN(price)) {
+                                    alert('Please enter a valid price');
                                     return;
                                   }
-                                  const merchRes = await fetch('/api/merch');
-                                  const merchData = await merchRes.json();
-                                  setMerchItems(merchData || []);
-                                } catch (error) {
-                                  console.error('Error deleting merch item:', error);
-                                  alert('Error deleting merch item');
-                                }
-                              }}
-                            >
-                              Delete
-                            </button>
+                                  
+                                  const availableQuantity = availableQuantityInput
+                                    ? parseInt(availableQuantityInput, 10)
+                                    : null;
+                                  if (availableQuantityInput && Number.isNaN(availableQuantity)) {
+                                    alert('Please enter a valid quantity');
+                                    return;
+                                  }
+                                  
+                                  const imageFile = formData.get('image');
+                                  const imageUrlInput = formData.get('imageUrl')?.trim() || '';
+                                  let imageUrl = item.imageUrl || null;
+                                  if (imageUrlInput) {
+                                    imageUrl = imageUrlInput;
+                                  } else if (imageFile && imageFile.size > 0) {
+                                    imageUrl = await uploadImageToCloudinary(imageFile);
+                                    if (!imageUrl) return; // Upload failed, error already shown
+                                  }
+                                  
+                                  try {
+                                    const res = await fetch(`/api/admin/merch/${item.id}`, {
+                                      method: 'PUT',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({
+                                        userId: currentUser?.id,
+                                        name,
+                                        price,
+                                        availableQuantity,
+                                        imageUrl,
+                                      }),
+                                    });
+                                    const data = await res.json();
+                                    if (!data.success) {
+                                      alert(data.error || 'Could not update merch item');
+                                      return;
+                                    }
+                                    const merchRes = await fetch('/api/merch');
+                                    const merchData = await merchRes.json();
+                                    setMerchItems(merchData || []);
+                                    setEditingMerchId(null);
+                                  } catch (error) {
+                                    console.error('Error updating merch item:', error);
+                                    alert('Error updating merch item');
+                                  }
+                                }}
+                              >
+                                <div className="inline-edit-inputs">
+                                  <input
+                                    type="text"
+                                    name="name"
+                                    defaultValue={item.name || ''}
+                                    placeholder="Name"
+                                    className="inline-edit-input"
+                                    required
+                                  />
+                                  <input
+                                    type="number"
+                                    name="price"
+                                    step="0.01"
+                                    defaultValue={item.price || ''}
+                                    placeholder="Price"
+                                    className="inline-edit-input"
+                                    required
+                                  />
+                                  <input
+                                    type="number"
+                                    name="availableQuantity"
+                                    defaultValue={item.availableQuantity != null ? item.availableQuantity : ''}
+                                    placeholder="Available quantity (optional)"
+                                    className="inline-edit-input"
+                                  />
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', width: '100%' }}>
+                                    <label style={{ color: '#b0b0b0', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '1px' }}>Cloudinary Image Upload</label>
+                                    <input
+                                      type="file"
+                                      name="image"
+                                      accept="image/*"
+                                      className="inline-edit-input"
+                                      style={{ padding: '0.5rem' }}
+                                    />
+                                    <span style={{ color: '#b0b0b0', fontSize: '0.8rem', textAlign: 'center' }}>OR</span>
+                                    <input
+                                      type="text"
+                                      name="imageUrl"
+                                      defaultValue={item.imageUrl || ''}
+                                      placeholder="Paste Cloudinary URL here"
+                                      className="inline-edit-input"
+                                    />
+                                  </div>
+                                </div>
+                                <div className="inline-edit-buttons">
+                                  <button type="submit" className="btn-primary admin-btn" disabled={uploadingImage}>
+                                    {uploadingImage ? 'Uploading...' : 'Save'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="btn-secondary admin-btn"
+                                    onClick={() => setEditingMerchId(null)}
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              </form>
+                            ) : (
+                              <>
+                                <button
+                                  type="button"
+                                  className="btn-secondary admin-btn"
+                                  onClick={() => setEditingMerchId(item.id)}
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  className="delete-account-button admin-btn"
+                                  onClick={async () => {
+                                    if (!window.confirm(`Delete merch item "${item.name}"?`)) return;
+                                    try {
+                                      const res = await fetch(`/api/admin/merch/${item.id}`, {
+                                        method: 'DELETE',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ userId: currentUser?.id }),
+                                      });
+                                      const data = await res.json();
+                                      if (!data.success) {
+                                        alert(data.error || 'Could not delete merch item');
+                                        return;
+                                      }
+                                      const merchRes = await fetch('/api/merch');
+                                      const merchData = await merchRes.json();
+                                      setMerchItems(merchData || []);
+                                    } catch (error) {
+                                      console.error('Error deleting merch item:', error);
+                                      alert('Error deleting merch item');
+                                    }
+                                  }}
+                                >
+                                  Delete
+                                </button>
+                              </>
+                            )}
                           </div>
                         )}
                       </div>
@@ -2328,6 +3425,22 @@ function App() {
                 </div>
               )}
 
+              {/* Lyrics Button */}
+              <div style={{ margin: '1.5rem 0', textAlign: 'center' }}>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={() => {
+                    const song = songs.find(s => s.id === selectedSong);
+                    setLyricsText(song?.lyrics || '');
+                    setShowLyricsModal(true);
+                  }}
+                  style={{ padding: '0.6rem 1.5rem' }}
+                >
+                  Lyrics
+                </button>
+              </div>
+
               {isLoggedIn && currentUser?.id && (
                 <form onSubmit={handleSubmitRating} className="rating-form">
                   <div className="rating-input-group">
@@ -2387,6 +3500,367 @@ function App() {
                   </div>
                 ) : (
                   <div className="no-comments">No comments yet. Be the first to rate!</div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Lyrics Modal */}
+        {showLyricsModal && selectedSong && (
+          <div className="modal-overlay" onClick={() => {
+            setShowLyricsModal(false);
+            setEditingLyrics(false);
+          }}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '800px', maxHeight: '80vh', overflowY: 'auto' }}>
+              <button className="modal-close" onClick={() => {
+                setShowLyricsModal(false);
+                setEditingLyrics(false);
+              }}>×</button>
+              <h2 className="modal-title">
+                {songs.find(s => s.id === selectedSong)?.title || 'Song'} - Lyrics
+              </h2>
+              
+              {(() => {
+                const song = songs.find(s => s.id === selectedSong);
+                if (isAdmin && adminMode && editingLyrics) {
+                  return (
+                    <form
+                      onSubmit={async (e) => {
+                        e.preventDefault();
+                        try {
+                          console.log('Updating lyrics for song', selectedSong, 'with text:', lyricsText);
+                          const res = await fetch(`/api/admin/songs/${selectedSong}`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              userId: currentUser?.id,
+                              lyrics: lyricsText || '', // Send empty string if null/undefined
+                            }),
+                          });
+                          const data = await res.json();
+                          if (!data.success) {
+                            alert(data.error || 'Could not update lyrics');
+                            return;
+                          }
+                          console.log('Lyrics updated successfully:', data);
+                          const allSongsRes = await fetch('/api/songs');
+                          const allSongsData = await allSongsRes.json();
+                          setSongs(allSongsData || []);
+                          setEditingLyrics(false);
+                        } catch (error) {
+                          console.error('Error updating lyrics:', error);
+                          alert('Error updating lyrics');
+                        }
+                      }}
+                    >
+                      <textarea
+                        value={lyricsText}
+                        onChange={(e) => setLyricsText(e.target.value)}
+                        className="lyrics-textarea"
+                        placeholder="Enter lyrics here..."
+                        rows={20}
+                      />
+                      <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '1rem' }}>
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          onClick={() => {
+                            setEditingLyrics(false);
+                            const song = songs.find(s => s.id === selectedSong);
+                            setLyricsText(song?.lyrics || '');
+                          }}
+                        >
+                          Cancel
+                        </button>
+                        <button type="submit" className="btn-primary">
+                          Save Lyrics
+                        </button>
+                      </div>
+                    </form>
+                  );
+                } else {
+                  const song = songs.find(s => s.id === selectedSong);
+                  const hasLyrics = song?.lyrics && song.lyrics.trim() !== '';
+                  
+                  return (
+                    <div>
+                      {hasLyrics ? (
+                        <div className="lyrics-display">
+                          <pre style={{ 
+                            whiteSpace: 'pre-wrap', 
+                            wordWrap: 'break-word',
+                            color: '#e0e0e0',
+                            fontFamily: 'inherit',
+                            lineHeight: '1.8',
+                            fontSize: '1rem'
+                          }}>
+                            {song.lyrics}
+                          </pre>
+                        </div>
+                      ) : (
+                        <div style={{ textAlign: 'center', color: '#b0b0b0', padding: '2rem' }}>
+                          No lyrics available for this song.
+                        </div>
+                      )}
+                      {isAdmin && adminMode && (
+                        <div style={{ marginTop: '1.5rem', textAlign: 'center' }}>
+                          <button
+                            type="button"
+                            className="btn-secondary"
+                            onClick={() => {
+                              setEditingLyrics(true);
+                              const song = songs.find(s => s.id === selectedSong);
+                              setLyricsText(song?.lyrics || '');
+                            }}
+                          >
+                            {hasLyrics ? 'Edit Lyrics' : 'Add Lyrics'}
+                          </button>
+                          {hasLyrics && (
+                            <button
+                              type="button"
+                              className="delete-account-button"
+                              style={{ marginLeft: '0.5rem' }}
+                              onClick={async () => {
+                                if (!window.confirm('Are you sure you want to delete the lyrics for this song?')) return;
+                                try {
+                                  const res = await fetch(`/api/admin/songs/${selectedSong}`, {
+                                    method: 'PUT',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                      userId: currentUser?.id,
+                                      lyrics: null,
+                                    }),
+                                  });
+                                  const data = await res.json();
+                                  if (!data.success) {
+                                    alert(data.error || 'Could not delete lyrics');
+                                    return;
+                                  }
+                                  const allSongsRes = await fetch('/api/songs');
+                                  const allSongsData = await allSongsRes.json();
+                                  setSongs(allSongsData || []);
+                                  setLyricsText('');
+                                } catch (error) {
+                                  console.error('Error deleting lyrics:', error);
+                                  alert('Error deleting lyrics');
+                                }
+                              }}
+                            >
+                              Remove Lyrics
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+              })()}
+            </div>
+          </div>
+        )}
+
+        {/* Create Playlist Modal */}
+        {showCreatePlaylistModal && (
+          <div className="modal-overlay" onClick={() => setShowCreatePlaylistModal(false)}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+              <button className="modal-close" onClick={() => setShowCreatePlaylistModal(false)}>×</button>
+              <h2 className="modal-title">Create Playlist</h2>
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  const formData = new FormData(e.target);
+                  const name = formData.get('name')?.trim() || '';
+                  const imageFile = formData.get('image');
+                  const imageUrlInput = formData.get('imageUrl')?.trim() || '';
+                  
+                  if (!name) {
+                    alert('Playlist name is required');
+                    return;
+                  }
+                  
+                  if (!currentUser?.id) {
+                    alert('You must be logged in to create a playlist');
+                    return;
+                  }
+                  
+                  let imageUrl = null;
+                  if (imageUrlInput) {
+                    imageUrl = imageUrlInput;
+                  } else if (imageFile && imageFile.size > 0) {
+                    imageUrl = await uploadImageToCloudinary(imageFile);
+                    if (!imageUrl) return;
+                  }
+                  
+                  try {
+                    console.log('Creating playlist with:', { userId: currentUser.id, name, imageUrl });
+                    const res = await fetch('/api/playlists', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        userId: currentUser.id,
+                        name,
+                        imageUrl,
+                      }),
+                    });
+                    const data = await res.json();
+                    console.log('Playlist creation response:', data);
+                    if (!data.success) {
+                      alert(data.details || data.error || 'Could not create playlist. Make sure the backend server has been restarted to create the database tables.');
+                      return;
+                    }
+                    const playlistsRes = await fetch(`/api/playlists?userId=${currentUser.id}`);
+                    const playlistsData = await playlistsRes.json();
+                    setPlaylists(playlistsData || []);
+                    setShowCreatePlaylistModal(false);
+                    e.target.reset();
+                  } catch (error) {
+                    console.error('Error creating playlist:', error);
+                    alert('Error creating playlist: ' + error.message);
+                  }
+                }}
+              >
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <input
+                    type="text"
+                    name="name"
+                    placeholder="Playlist name"
+                    className="input-field"
+                    required
+                  />
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    <label style={{ color: '#b0b0b0', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '1px' }}>Cloudinary Image Upload</label>
+                    <input
+                      type="file"
+                      name="image"
+                      accept="image/*"
+                      className="input-field"
+                      style={{ padding: '0.5rem' }}
+                    />
+                    <span style={{ color: '#b0b0b0', fontSize: '0.8rem', textAlign: 'center' }}>OR</span>
+                    <input
+                      type="text"
+                      name="imageUrl"
+                      placeholder="Paste Cloudinary URL here"
+                      className="input-field"
+                    />
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '1.5rem' }}>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => setShowCreatePlaylistModal(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button type="submit" className="btn-primary" disabled={uploadingImage}>
+                    {uploadingImage ? 'Uploading...' : 'Create Playlist'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Add Songs to Playlist Modal */}
+        {showAddSongsModal && selectedPlaylistId && (
+          <div className="modal-overlay" onClick={() => {
+            setShowAddSongsModal(false);
+            setSelectedPlaylistId(null);
+          }}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '800px', maxHeight: '80vh', overflowY: 'auto' }}>
+              <button className="modal-close" onClick={() => {
+                setShowAddSongsModal(false);
+                setSelectedPlaylistId(null);
+              }}>×</button>
+              <h2 className="modal-title">
+                Add Songs to {playlists.find(p => p.id === selectedPlaylistId)?.name || 'Playlist'}
+              </h2>
+              <div style={{ marginTop: '1.5rem' }}>
+                {songs.length > 0 ? (
+                  <div>
+                    {albums.map((album) => {
+                      const albumSongs = songs.filter(s => s.albumId === album.id);
+                      if (albumSongs.length === 0) return null;
+                      
+                      const playlist = playlists.find(p => p.id === selectedPlaylistId);
+                      const playlistSongIds = playlist?.songs?.map(s => s.id) || [];
+                      
+                      return (
+                        <div key={album.id} style={{ marginBottom: '2rem' }}>
+                          <h3 style={{ color: '#3F829D', marginBottom: '0.5rem', fontSize: '1.2rem' }}>
+                            {album.title}
+                          </h3>
+                          <ul className="songs-list">
+                            {albumSongs.map((song) => {
+                              const isInPlaylist = playlistSongIds.includes(song.id);
+                              return (
+                                <li key={song.id} className="song-item">
+                                  <span className="song-title">{song.title}</span>
+                                  <span className="song-duration">{song.duration}</span>
+                                  {isInPlaylist ? (
+                                    <span style={{ color: 'rgba(63, 130, 157, 0.6)', fontSize: '0.85rem', fontStyle: 'italic' }}>Already added</span>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      className="btn-primary"
+                                      style={{ 
+                                        padding: '0.4rem 1rem', 
+                                        fontSize: '0.85rem',
+                                        background: 'rgba(63, 130, 157, 0.2)',
+                                        border: '1px solid rgba(63, 130, 157, 0.4)',
+                                        borderRadius: '6px',
+                                        color: '#3F829D',
+                                        transition: 'all 0.3s ease'
+                                      }}
+                                      onMouseEnter={(e) => {
+                                        e.target.style.background = 'rgba(63, 130, 157, 0.3)';
+                                        e.target.style.borderColor = 'rgba(63, 130, 157, 0.6)';
+                                      }}
+                                      onMouseLeave={(e) => {
+                                        e.target.style.background = 'rgba(63, 130, 157, 0.2)';
+                                        e.target.style.borderColor = 'rgba(63, 130, 157, 0.4)';
+                                      }}
+                                      onClick={async () => {
+                                        try {
+                                          const res = await fetch(`/api/playlists/${selectedPlaylistId}/songs`, {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({
+                                              userId: currentUser?.id,
+                                              songId: song.id,
+                                            }),
+                                          });
+                                          const data = await res.json();
+                                          if (!data.success) {
+                                            alert(data.error || 'Could not add song');
+                                            return;
+                                          }
+                                          const playlistsRes = await fetch(`/api/playlists?userId=${currentUser.id}`);
+                                          const playlistsData = await playlistsRes.json();
+                                          setPlaylists(playlistsData || []);
+                                        } catch (error) {
+                                          console.error('Error adding song:', error);
+                                          alert('Error adding song');
+                                        }
+                                      }}
+                                    >
+                                      Add
+                                    </button>
+                                  )}
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div style={{ color: '#b0b0b0', textAlign: 'center', padding: '2rem' }}>
+                    No songs available
+                  </div>
                 )}
               </div>
             </div>

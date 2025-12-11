@@ -84,6 +84,18 @@ app.post('/api/upload-image', upload.single('image'), async (req, res) => {
   }
 });
 
+// Add image_url columns to shows and merch tables if they don't exist
+app.post('/api/add-image-url-columns', async (req, res) => {
+  try {
+    await db.query(`ALTER TABLE shows ADD COLUMN IF NOT EXISTS image_url TEXT;`);
+    await db.query(`ALTER TABLE merch ADD COLUMN IF NOT EXISTS image_url TEXT;`);
+    res.json({ success: true, message: 'Image URL columns added' });
+  } catch (error) {
+    console.error('Error adding image URL columns:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // Add audio_url column to songs table if it doesn't exist
 app.post('/api/add-audio-url-column', async (req, res) => {
   try {
@@ -514,8 +526,9 @@ app.get('/api/users', async (req, res) => {
 app.get('/api/shows', async (req, res) => {
   try {
     const result = await db.query(
-      'SELECT id, date, city, venue, price, available_seats AS "availableSeats" FROM shows ORDER BY date ASC'
+      'SELECT id, date, city, venue, location, price, available_seats AS "availableSeats", image_url AS "imageUrl" FROM shows ORDER BY date ASC'
     );
+    console.log('Fetched shows, sample show imageUrl:', result.rows[0]?.imageUrl);
     res.json(result.rows);
   } catch (error) {
     console.error('Error fetching shows:', error);
@@ -541,7 +554,7 @@ async function isAdminUser(userId) {
 
 // Admin: create a new show
 app.post('/api/admin/shows', async (req, res) => {
-  const { userId, date, city, venue, price, availableSeats } = req.body || {};
+  const { userId, date, city, venue, location, price, availableSeats, imageUrl } = req.body || {};
 
   if (!userId) {
     return res.status(400).json({ success: false, error: 'userId is required' });
@@ -558,10 +571,10 @@ app.post('/api/admin/shows', async (req, res) => {
     }
 
     const result = await db.query(
-      `INSERT INTO shows (date, city, venue, price, available_seats)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, date, city, venue, price, available_seats AS "availableSeats"`,
-      [date, city, venue || null, price || null, availableSeats != null ? availableSeats : 30]
+      `INSERT INTO shows (date, city, venue, location, price, available_seats, image_url)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id, date, city, venue, location, price, available_seats AS "availableSeats", image_url AS "imageUrl"`,
+      [date, city, venue || null, location || null, price || null, availableSeats != null ? availableSeats : 30, imageUrl || null]
     );
 
     res.status(201).json({ success: true, show: result.rows[0] });
@@ -574,7 +587,7 @@ app.post('/api/admin/shows', async (req, res) => {
 // Admin: update an existing show (name/city/venue/price/date/available seats)
 app.put('/api/admin/shows/:showId', async (req, res) => {
   const showId = parseInt(req.params.showId, 10);
-  const { userId, date, city, venue, price, availableSeats } = req.body || {};
+  const { userId, date, city, venue, location, price, availableSeats, imageUrl } = req.body || {};
 
   if (!userId) {
     return res.status(400).json({ success: false, error: 'userId is required' });
@@ -607,6 +620,12 @@ app.put('/api/admin/shows/:showId', async (req, res) => {
       fields.push(`venue = $${idx++}`);
       values.push(venue);
     }
+    if (location !== undefined) {
+      fields.push(`location = $${idx++}`);
+      const finalLocation = (location && typeof location === 'string' && location.trim() !== '') ? location.trim() : null;
+      values.push(finalLocation);
+      console.log(`[UPDATE SHOW] Setting location for show ${showId} to:`, finalLocation);
+    }
     if (price !== undefined) {
       fields.push(`price = $${idx++}`);
       values.push(price);
@@ -614,6 +633,12 @@ app.put('/api/admin/shows/:showId', async (req, res) => {
     if (availableSeats !== undefined) {
       fields.push(`available_seats = $${idx++}`);
       values.push(availableSeats);
+    }
+    if (imageUrl !== undefined) {
+      fields.push(`image_url = $${idx++}`);
+      const finalImageUrl = (imageUrl && typeof imageUrl === 'string' && imageUrl.trim() !== '') ? imageUrl.trim() : null;
+      values.push(finalImageUrl);
+      console.log(`[UPDATE SHOW] Setting imageUrl for show ${showId} to:`, finalImageUrl);
     }
 
     if (fields.length === 0) {
@@ -626,15 +651,19 @@ app.put('/api/admin/shows/:showId', async (req, res) => {
       UPDATE shows
       SET ${fields.join(', ')}
       WHERE id = $${idx}
-      RETURNING id, date, city, venue, price, available_seats AS "availableSeats"
+      RETURNING id, date, city, venue, location, price, available_seats AS "availableSeats", image_url AS "imageUrl"
     `;
 
+    console.log('[UPDATE SHOW] Query:', query);
+    console.log('[UPDATE SHOW] Values:', values);
     const result = await db.query(query, values);
+    console.log('[UPDATE SHOW] Result:', result.rows[0]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({ success: false, error: 'show not found' });
     }
 
+    console.log('Updated show response:', result.rows[0]);
     res.json({ success: true, show: result.rows[0] });
   } catch (error) {
     console.error('Error updating show:', error);
@@ -683,7 +712,7 @@ app.delete('/api/admin/shows/:showId', async (req, res) => {
 
 // Admin: create a new merch item
 app.post('/api/admin/merch', async (req, res) => {
-  const { userId, name, price, type, variant, availableQuantity } = req.body || {};
+  const { userId, name, price, type, variant, availableQuantity, imageUrl } = req.body || {};
 
   if (!userId) {
     return res.status(400).json({ success: false, error: 'userId is required' });
@@ -700,15 +729,16 @@ app.post('/api/admin/merch', async (req, res) => {
     }
 
     const result = await db.query(
-      `INSERT INTO merch (name, price, type, variant, available_quantity)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, name, price, type, variant, available_quantity AS "availableQuantity"`,
+      `INSERT INTO merch (name, price, type, variant, available_quantity, image_url)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id, name, price, type, variant, available_quantity AS "availableQuantity", image_url AS "imageUrl"`,
       [
         name,
         price,
         type || null,
         variant || null,
         availableQuantity != null ? availableQuantity : 20,
+        imageUrl || null,
       ]
     );
 
@@ -722,7 +752,7 @@ app.post('/api/admin/merch', async (req, res) => {
 // Admin: update an existing merch item
 app.put('/api/admin/merch/:merchId', async (req, res) => {
   const merchId = parseInt(req.params.merchId, 10);
-  const { userId, name, price, type, variant, availableQuantity } = req.body || {};
+  const { userId, name, price, type, variant, availableQuantity, imageUrl } = req.body || {};
 
   if (!userId) {
     return res.status(400).json({ success: false, error: 'userId is required' });
@@ -761,6 +791,10 @@ app.put('/api/admin/merch/:merchId', async (req, res) => {
     if (availableQuantity !== undefined) {
       fields.push(`available_quantity = $${idx++}`);
       values.push(availableQuantity);
+    }
+    if (imageUrl !== undefined) {
+      fields.push(`image_url = $${idx++}`);
+      values.push(imageUrl || null);
     }
 
     if (fields.length === 0) {
@@ -828,7 +862,7 @@ app.delete('/api/admin/merch/:merchId', async (req, res) => {
 app.get('/api/merch', async (req, res) => {
   try {
     const result = await db.query(
-      'SELECT id, name, price, type, variant, available_quantity AS "availableQuantity" FROM merch ORDER BY type ASC, id ASC'
+      'SELECT id, name, price, type, variant, available_quantity AS "availableQuantity", image_url AS "imageUrl" FROM merch ORDER BY type ASC, id ASC'
     );
     res.json(result.rows);
   } catch (error) {
@@ -1324,16 +1358,32 @@ app.get('/api/songs', async (req, res) => {
     
     const hasAudioUrl = columnCheck.rows.length > 0;
     
+    // Check if lyrics column exists
+    const lyricsColumnCheck = await db.query(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name='songs' AND column_name='lyrics';
+    `);
+    const hasLyrics = lyricsColumnCheck.rows.length > 0;
+    
     if (albumId) {
-      if (hasAudioUrl) {
+      if (hasAudioUrl && hasLyrics) {
+        query = 'SELECT id, album_id AS "albumId", title, duration, track_number AS "trackNumber", audio_url AS "audioUrl", lyrics FROM songs WHERE album_id = $1 ORDER BY track_number ASC';
+      } else if (hasAudioUrl) {
         query = 'SELECT id, album_id AS "albumId", title, duration, track_number AS "trackNumber", audio_url AS "audioUrl" FROM songs WHERE album_id = $1 ORDER BY track_number ASC';
+      } else if (hasLyrics) {
+        query = 'SELECT id, album_id AS "albumId", title, duration, track_number AS "trackNumber", lyrics FROM songs WHERE album_id = $1 ORDER BY track_number ASC';
       } else {
         query = 'SELECT id, album_id AS "albumId", title, duration, track_number AS "trackNumber" FROM songs WHERE album_id = $1 ORDER BY track_number ASC';
       }
       params = [albumId];
     } else {
-      if (hasAudioUrl) {
+      if (hasAudioUrl && hasLyrics) {
+        query = 'SELECT id, album_id AS "albumId", title, duration, track_number AS "trackNumber", audio_url AS "audioUrl", lyrics FROM songs ORDER BY album_id ASC, track_number ASC';
+      } else if (hasAudioUrl) {
         query = 'SELECT id, album_id AS "albumId", title, duration, track_number AS "trackNumber", audio_url AS "audioUrl" FROM songs ORDER BY album_id ASC, track_number ASC';
+      } else if (hasLyrics) {
+        query = 'SELECT id, album_id AS "albumId", title, duration, track_number AS "trackNumber", lyrics FROM songs ORDER BY album_id ASC, track_number ASC';
       } else {
         query = 'SELECT id, album_id AS "albumId", title, duration, track_number AS "trackNumber" FROM songs ORDER BY album_id ASC, track_number ASC';
       }
@@ -1373,12 +1423,30 @@ app.post('/api/admin/songs', async (req, res) => {
       return res.status(403).json({ success: false, error: 'not authorized' });
     }
 
-    const result = await db.query(
-      `INSERT INTO songs (album_id, title, duration, track_number, audio_url)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, album_id AS "albumId", title, duration, track_number AS "trackNumber", audio_url AS "audioUrl"`,
-      [albumId, title, duration, trackNumber, audioUrl || null]
-    );
+    // Check if lyrics column exists
+    const lyricsColumnCheck = await db.query(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name='songs' AND column_name='lyrics';
+    `);
+    const hasLyrics = lyricsColumnCheck.rows.length > 0;
+    
+    let result;
+    if (hasLyrics) {
+      result = await db.query(
+        `INSERT INTO songs (album_id, title, duration, track_number, audio_url, lyrics)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING id, album_id AS "albumId", title, duration, track_number AS "trackNumber", audio_url AS "audioUrl", lyrics`,
+        [albumId, title, duration, trackNumber, audioUrl || null, lyrics || null]
+      );
+    } else {
+      result = await db.query(
+        `INSERT INTO songs (album_id, title, duration, track_number, audio_url)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING id, album_id AS "albumId", title, duration, track_number AS "trackNumber", audio_url AS "audioUrl"`,
+        [albumId, title, duration, trackNumber, audioUrl || null]
+      );
+    }
 
     res.status(201).json({ success: true, song: result.rows[0] });
   } catch (error) {
@@ -1390,7 +1458,7 @@ app.post('/api/admin/songs', async (req, res) => {
 // Admin: update an existing song
 app.put('/api/admin/songs/:songId', async (req, res) => {
   const songId = parseInt(req.params.songId, 10);
-  const { userId, albumId, title, duration, trackNumber, audioUrl } = req.body || {};
+  const { userId, albumId, title, duration, trackNumber, audioUrl, lyrics } = req.body || {};
 
   if (!userId) {
     return res.status(400).json({ success: false, error: 'userId is required' });
@@ -1431,18 +1499,60 @@ app.put('/api/admin/songs/:songId', async (req, res) => {
       values.push(audioUrl || null);
       console.log(`Updating song ${songId} with audioUrl:`, audioUrl || null);
     }
+    
+    // Check if lyrics column exists and handle lyrics update
+    const lyricsColumnCheck = await db.query(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name='songs' AND column_name='lyrics';
+    `);
+    const hasLyrics = lyricsColumnCheck.rows.length > 0;
+    
+    // Handle lyrics update - allow empty string to clear lyrics
+    if (lyrics !== undefined && hasLyrics) {
+      fields.push(`lyrics = $${idx++}`);
+      // Allow empty string to set lyrics to null (clear lyrics)
+      values.push(lyrics === '' ? null : (lyrics || null));
+      console.log(`Updating song ${songId} with lyrics:`, lyrics === '' ? 'null (clearing)' : lyrics);
+    } else if (lyrics !== undefined && !hasLyrics) {
+      // If lyrics column doesn't exist but lyrics is being sent, create it
+      console.log('Lyrics column does not exist, creating it...');
+      try {
+        await db.query(`ALTER TABLE songs ADD COLUMN lyrics TEXT;`);
+        fields.push(`lyrics = $${idx++}`);
+        values.push(lyrics === '' ? null : (lyrics || null));
+        console.log(`Lyrics column created and updating song ${songId} with lyrics`);
+      } catch (alterError) {
+        console.error('Error creating lyrics column:', alterError);
+        // Continue without lyrics if column creation fails
+      }
+    }
 
     if (fields.length === 0) {
       return res.status(400).json({ success: false, error: 'no fields to update' });
     }
 
     values.push(songId);
+    
+    // Build RETURNING clause based on available columns
+    let returningFields = 'id, album_id AS "albumId", title, duration, track_number AS "trackNumber"';
+    if (hasLyrics) {
+      returningFields += ', lyrics';
+    }
+    const audioColumnCheck = await db.query(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name='songs' AND column_name='audio_url';
+    `);
+    if (audioColumnCheck.rows.length > 0) {
+      returningFields += ', audio_url AS "audioUrl"';
+    }
 
     const query = `
       UPDATE songs
       SET ${fields.join(', ')}
       WHERE id = $${idx}
-      RETURNING id, album_id AS "albumId", title, duration, track_number AS "trackNumber", audio_url AS "audioUrl"
+      RETURNING ${returningFields}
     `;
 
     console.log('Update query:', query);
@@ -1493,6 +1603,561 @@ app.delete('/api/admin/songs/:songId', async (req, res) => {
   } catch (error) {
     console.error('Error deleting song:', error);
     res.status(500).json({ success: false, error: 'failed to delete song' });
+  }
+});
+
+// =========================
+// PLAYLIST MANAGEMENT
+// =========================
+
+// Get all playlists (for logged-in users, show their own playlists)
+app.get('/api/playlists', async (req, res) => {
+  try {
+    const userId = req.query.userId ? parseInt(req.query.userId, 10) : null;
+    
+    let query;
+    let params;
+    
+    if (userId) {
+      query = `
+        SELECT p.id, p.user_id AS "userId", p.name, p.image_url AS "imageUrl", p.created_at AS "createdAt",
+               COALESCE(
+                 json_agg(
+                   json_build_object(
+                     'id', s.id,
+                     'title', s.title,
+                     'duration', s.duration,
+                     'trackNumber', s.track_number,
+                     'albumId', s.album_id,
+                     'audioUrl', s.audio_url,
+                     'lyrics', s.lyrics,
+                     'position', ps.position
+                   ) ORDER BY ps.position
+                 ) FILTER (WHERE s.id IS NOT NULL),
+                 '[]'::json
+               ) AS songs
+        FROM playlists p
+        LEFT JOIN playlist_songs ps ON p.id = ps.playlist_id
+        LEFT JOIN songs s ON ps.song_id = s.id
+        WHERE p.user_id = $1
+        GROUP BY p.id
+        ORDER BY p.created_at DESC
+      `;
+      params = [userId];
+    } else {
+      query = `
+        SELECT p.id, p.user_id AS "userId", p.name, p.image_url AS "imageUrl", p.created_at AS "createdAt",
+               COALESCE(
+                 json_agg(
+                   json_build_object(
+                     'id', s.id,
+                     'title', s.title,
+                     'duration', s.duration,
+                     'trackNumber', s.track_number,
+                     'albumId', s.album_id,
+                     'audioUrl', s.audio_url,
+                     'lyrics', s.lyrics,
+                     'position', ps.position
+                   ) ORDER BY ps.position
+                 ) FILTER (WHERE s.id IS NOT NULL),
+                 '[]'::json
+               ) AS songs
+        FROM playlists p
+        LEFT JOIN playlist_songs ps ON p.id = ps.playlist_id
+        LEFT JOIN songs s ON ps.song_id = s.id
+        GROUP BY p.id
+        ORDER BY p.created_at DESC
+      `;
+      params = [];
+    }
+    
+    const result = await db.query(query, params);
+    
+    // Parse the songs JSON for each playlist
+    const playlists = result.rows.map(row => ({
+      ...row,
+      songs: typeof row.songs === 'string' ? JSON.parse(row.songs) : row.songs
+    }));
+    
+    res.json(playlists);
+  } catch (error) {
+    console.error('Error fetching playlists:', error);
+    res.status(500).json({ error: 'failed to load playlists' });
+  }
+});
+
+// Get all public playlists (for "Other Playlists" section) - MUST come before /:playlistId route
+app.get('/api/playlists/public', async (req, res) => {
+  try {
+    const currentUserId = req.query.excludeUserId ? parseInt(req.query.excludeUserId, 10) : null;
+    
+    let query;
+    let params;
+    
+    if (currentUserId) {
+      query = `
+        SELECT p.id, p.user_id AS "userId", p.name, p.image_url AS "imageUrl", p.created_at AS "createdAt",
+               u.username, u.email,
+               COALESCE(
+                 json_agg(
+                   json_build_object(
+                     'id', s.id,
+                     'title', s.title,
+                     'duration', s.duration,
+                     'trackNumber', s.track_number,
+                     'albumId', s.album_id,
+                     'audioUrl', s.audio_url,
+                     'lyrics', s.lyrics,
+                     'position', ps.position
+                   ) ORDER BY ps.position
+                 ) FILTER (WHERE s.id IS NOT NULL),
+                 '[]'::json
+               ) AS songs
+        FROM playlists p
+        JOIN users u ON p.user_id = u.id
+        LEFT JOIN playlist_songs ps ON p.id = ps.playlist_id
+        LEFT JOIN songs s ON ps.song_id = s.id
+        WHERE COALESCE(p.is_public, false) = true AND p.user_id != $1
+        GROUP BY p.id, u.username, u.email
+        ORDER BY p.created_at DESC
+      `;
+      params = [currentUserId];
+    } else {
+      query = `
+        SELECT p.id, p.user_id AS "userId", p.name, p.image_url AS "imageUrl", p.created_at AS "createdAt",
+               u.username, u.email,
+               COALESCE(
+                 json_agg(
+                   json_build_object(
+                     'id', s.id,
+                     'title', s.title,
+                     'duration', s.duration,
+                     'trackNumber', s.track_number,
+                     'albumId', s.album_id,
+                     'audioUrl', s.audio_url,
+                     'lyrics', s.lyrics,
+                     'position', ps.position
+                   ) ORDER BY ps.position
+                 ) FILTER (WHERE s.id IS NOT NULL),
+                 '[]'::json
+               ) AS songs
+        FROM playlists p
+        JOIN users u ON p.user_id = u.id
+        LEFT JOIN playlist_songs ps ON p.id = ps.playlist_id
+        LEFT JOIN songs s ON ps.song_id = s.id
+        WHERE COALESCE(p.is_public, false) = true
+        GROUP BY p.id, u.username, u.email
+        ORDER BY p.created_at DESC
+      `;
+      params = [];
+    }
+    
+    const result = await db.query(query, params);
+    
+    // Parse the songs JSON for each playlist and group by username
+    const playlists = result.rows.map(row => ({
+      ...row,
+      songs: typeof row.songs === 'string' ? JSON.parse(row.songs) : row.songs
+    }));
+    
+    // Group playlists by username
+    const playlistsByUser = {};
+    playlists.forEach(playlist => {
+      const username = playlist.username || playlist.email || 'Unknown';
+      if (!playlistsByUser[username]) {
+        playlistsByUser[username] = {
+          username,
+          email: playlist.email,
+          playlists: []
+        };
+      }
+      playlistsByUser[username].playlists.push(playlist);
+    });
+    
+    res.json(Object.values(playlistsByUser));
+  } catch (error) {
+    console.error('Error fetching public playlists:', error);
+    console.error('Error details:', error.message, error.code, error.stack);
+    res.status(500).json({ 
+      success: false,
+      error: 'failed to load public playlists',
+      details: error.message,
+      code: error.code
+    });
+  }
+});
+
+// Get a single playlist by ID
+app.get('/api/playlists/:playlistId', async (req, res) => {
+  try {
+    const playlistId = parseInt(req.params.playlistId, 10);
+    
+    const result = await db.query(`
+      SELECT p.id, p.user_id AS "userId", p.name, p.image_url AS "imageUrl", p.created_at AS "createdAt",
+             COALESCE(p.is_public, false) AS "isPublic",
+             COALESCE(
+               json_agg(
+                 json_build_object(
+                   'id', s.id,
+                   'title', s.title,
+                   'duration', s.duration,
+                   'trackNumber', s.track_number,
+                   'albumId', s.album_id,
+                   'audioUrl', s.audio_url,
+                   'lyrics', s.lyrics,
+                   'position', ps.position
+                 ) ORDER BY ps.position
+               ) FILTER (WHERE s.id IS NOT NULL),
+               '[]'::json
+             ) AS songs
+      FROM playlists p
+      LEFT JOIN playlist_songs ps ON p.id = ps.playlist_id
+      LEFT JOIN songs s ON ps.song_id = s.id
+      WHERE p.id = $1
+      GROUP BY p.id
+    `, [playlistId]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'playlist not found' });
+    }
+    
+    const playlist = result.rows[0];
+    playlist.songs = typeof playlist.songs === 'string' ? JSON.parse(playlist.songs) : playlist.songs;
+    
+    res.json({ success: true, playlist });
+  } catch (error) {
+    console.error('Error fetching playlist:', error);
+    res.status(500).json({ success: false, error: 'failed to load playlist' });
+  }
+});
+
+// Create a new playlist
+app.post('/api/playlists', async (req, res) => {
+  const { userId, name, imageUrl } = req.body || {};
+  
+  if (!userId) {
+    return res.status(400).json({ success: false, error: 'userId is required' });
+  }
+  
+  if (!name || !name.trim()) {
+    return res.status(400).json({ success: false, error: 'playlist name is required' });
+  }
+  
+  try {
+    const result = await db.query(
+      `INSERT INTO playlists (user_id, name, image_url, is_public)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, user_id AS "userId", name, image_url AS "imageUrl", created_at AS "createdAt", COALESCE(is_public, false) AS "isPublic"`,
+      [userId, name.trim(), imageUrl || null, false]
+    );
+    
+    res.status(201).json({ success: true, playlist: { ...result.rows[0], songs: [] } });
+  } catch (error) {
+    console.error('Error creating playlist:', error);
+    console.error('Error details:', error.message, error.code);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message || 'failed to create playlist',
+      details: error.code === '42P01' ? 'Playlists table does not exist. Please restart the backend server.' : error.message
+    });
+  }
+});
+
+// Update a playlist
+app.put('/api/playlists/:playlistId', async (req, res) => {
+  const playlistId = parseInt(req.params.playlistId, 10);
+  const { userId, name, imageUrl, isPublic } = req.body || {};
+  
+  console.log(`[UPDATE PLAYLIST] Received update request for playlist ${playlistId}:`, { 
+    userId, 
+    name, 
+    imageUrl, 
+    isPublic, 
+    isPublicType: typeof isPublic,
+    isPublicValue: isPublic 
+  });
+  
+  if (!userId) {
+    return res.status(400).json({ success: false, error: 'userId is required' });
+  }
+  
+  if (!playlistId) {
+    return res.status(400).json({ success: false, error: 'playlistId is required' });
+  }
+  
+  try {
+    // Check if user owns the playlist
+    const ownershipCheck = await db.query(
+      'SELECT user_id FROM playlists WHERE id = $1',
+      [playlistId]
+    );
+    
+    if (ownershipCheck.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'playlist not found' });
+    }
+    
+    if (ownershipCheck.rows[0].user_id !== userId) {
+      return res.status(403).json({ success: false, error: 'not authorized' });
+    }
+    
+    const fields = [];
+    const values = [];
+    let idx = 1;
+    
+    if (name !== undefined) {
+      if (!name.trim()) {
+        return res.status(400).json({ success: false, error: 'playlist name cannot be empty' });
+      }
+      fields.push(`name = $${idx++}`);
+      values.push(name.trim());
+    }
+    
+    if (imageUrl !== undefined) {
+      fields.push(`image_url = $${idx++}`);
+      values.push(imageUrl || null);
+    }
+    
+    // Always update isPublic if it's provided (even if false)
+    if (isPublic !== undefined && isPublic !== null) {
+      fields.push(`is_public = $${idx++}`);
+      const isPublicValue = isPublic === true || isPublic === 'true' || isPublic === 1;
+      values.push(isPublicValue);
+      console.log(`[UPDATE PLAYLIST] Setting is_public for playlist ${playlistId} to:`, isPublicValue, '(from input:', isPublic, ')');
+    } else {
+      console.log(`[UPDATE PLAYLIST] isPublic is undefined/null, not updating is_public field`);
+    }
+    
+    if (fields.length === 0) {
+      return res.status(400).json({ success: false, error: 'no fields to update' });
+    }
+    
+    values.push(playlistId);
+    
+    const query = `
+      UPDATE playlists
+      SET ${fields.join(', ')}
+      WHERE id = $${idx}
+      RETURNING id, user_id AS "userId", name, image_url AS "imageUrl", created_at AS "createdAt", COALESCE(is_public, false) AS "isPublic"
+    `;
+    
+    const result = await db.query(query, values);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'playlist not found' });
+    }
+    
+    res.json({ success: true, playlist: result.rows[0] });
+  } catch (error) {
+    console.error('Error updating playlist:', error);
+    res.status(500).json({ success: false, error: 'failed to update playlist' });
+  }
+});
+
+// Delete a playlist
+app.delete('/api/playlists/:playlistId', async (req, res) => {
+  const playlistId = parseInt(req.params.playlistId, 10);
+  const { userId } = req.body || {};
+  
+  if (!userId) {
+    return res.status(400).json({ success: false, error: 'userId is required' });
+  }
+  
+  if (!playlistId) {
+    return res.status(400).json({ success: false, error: 'playlistId is required' });
+  }
+  
+  try {
+    // Check if user owns the playlist
+    const ownershipCheck = await db.query(
+      'SELECT user_id FROM playlists WHERE id = $1',
+      [playlistId]
+    );
+    
+    if (ownershipCheck.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'playlist not found' });
+    }
+    
+    if (ownershipCheck.rows[0].user_id !== userId) {
+      return res.status(403).json({ success: false, error: 'not authorized' });
+    }
+    
+    const result = await db.query(
+      'DELETE FROM playlists WHERE id = $1 RETURNING id',
+      [playlistId]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'playlist not found' });
+    }
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting playlist:', error);
+    res.status(500).json({ success: false, error: 'failed to delete playlist' });
+  }
+});
+
+// Add a song to a playlist
+app.post('/api/playlists/:playlistId/songs', async (req, res) => {
+  const playlistId = parseInt(req.params.playlistId, 10);
+  const { userId, songId, position } = req.body || {};
+  
+  if (!userId) {
+    return res.status(400).json({ success: false, error: 'userId is required' });
+  }
+  
+  if (!songId) {
+    return res.status(400).json({ success: false, error: 'songId is required' });
+  }
+  
+  try {
+    // Check if user owns the playlist
+    const ownershipCheck = await db.query(
+      'SELECT user_id FROM playlists WHERE id = $1',
+      [playlistId]
+    );
+    
+    if (ownershipCheck.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'playlist not found' });
+    }
+    
+    if (ownershipCheck.rows[0].user_id !== userId) {
+      return res.status(403).json({ success: false, error: 'not authorized' });
+    }
+    
+    // Check if song exists
+    const songCheck = await db.query('SELECT id FROM songs WHERE id = $1', [songId]);
+    if (songCheck.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'song not found' });
+    }
+    
+    // Check if song is already in playlist
+    const existingCheck = await db.query(
+      'SELECT id FROM playlist_songs WHERE playlist_id = $1 AND song_id = $2',
+      [playlistId, songId]
+    );
+    
+    if (existingCheck.rows.length > 0) {
+      return res.status(400).json({ success: false, error: 'song already in playlist' });
+    }
+    
+    // Get the next position if not provided
+    let nextPosition = position;
+    if (nextPosition === undefined || nextPosition === null) {
+      const maxPositionResult = await db.query(
+        'SELECT COALESCE(MAX(position), 0) + 1 AS next_pos FROM playlist_songs WHERE playlist_id = $1',
+        [playlistId]
+      );
+      nextPosition = maxPositionResult.rows[0].next_pos;
+    }
+    
+    const result = await db.query(
+      `INSERT INTO playlist_songs (playlist_id, song_id, position)
+       VALUES ($1, $2, $3)
+       RETURNING id, playlist_id AS "playlistId", song_id AS "songId", position`,
+      [playlistId, songId, nextPosition]
+    );
+    
+    res.status(201).json({ success: true, playlistSong: result.rows[0] });
+  } catch (error) {
+    console.error('Error adding song to playlist:', error);
+    res.status(500).json({ success: false, error: 'failed to add song to playlist' });
+  }
+});
+
+// Remove a song from a playlist
+app.delete('/api/playlists/:playlistId/songs/:songId', async (req, res) => {
+  const playlistId = parseInt(req.params.playlistId, 10);
+  const songId = parseInt(req.params.songId, 10);
+  const { userId } = req.body || {};
+  
+  if (!userId) {
+    return res.status(400).json({ success: false, error: 'userId is required' });
+  }
+  
+  try {
+    // Check if user owns the playlist
+    const ownershipCheck = await db.query(
+      'SELECT user_id FROM playlists WHERE id = $1',
+      [playlistId]
+    );
+    
+    if (ownershipCheck.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'playlist not found' });
+    }
+    
+    if (ownershipCheck.rows[0].user_id !== userId) {
+      return res.status(403).json({ success: false, error: 'not authorized' });
+    }
+    
+    const result = await db.query(
+      'DELETE FROM playlist_songs WHERE playlist_id = $1 AND song_id = $2 RETURNING id',
+      [playlistId, songId]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'song not found in playlist' });
+    }
+    
+    // Reorder remaining songs
+    await db.query(`
+      UPDATE playlist_songs
+      SET position = new_pos
+      FROM (
+        SELECT id, ROW_NUMBER() OVER (ORDER BY position) AS new_pos
+        FROM playlist_songs
+        WHERE playlist_id = $1
+      ) AS reordered
+      WHERE playlist_songs.id = reordered.id
+    `, [playlistId]);
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error removing song from playlist:', error);
+    res.status(500).json({ success: false, error: 'failed to remove song from playlist' });
+  }
+});
+
+// Reorder songs in a playlist
+app.put('/api/playlists/:playlistId/songs/reorder', async (req, res) => {
+  const playlistId = parseInt(req.params.playlistId, 10);
+  const { userId, songIds } = req.body || {}; // songIds is an array of song IDs in the new order
+  
+  if (!userId) {
+    return res.status(400).json({ success: false, error: 'userId is required' });
+  }
+  
+  if (!Array.isArray(songIds)) {
+    return res.status(400).json({ success: false, error: 'songIds must be an array' });
+  }
+  
+  try {
+    // Check if user owns the playlist
+    const ownershipCheck = await db.query(
+      'SELECT user_id FROM playlists WHERE id = $1',
+      [playlistId]
+    );
+    
+    if (ownershipCheck.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'playlist not found' });
+    }
+    
+    if (ownershipCheck.rows[0].user_id !== userId) {
+      return res.status(403).json({ success: false, error: 'not authorized' });
+    }
+    
+    // Update positions for each song
+    for (let i = 0; i < songIds.length; i++) {
+      await db.query(
+        'UPDATE playlist_songs SET position = $1 WHERE playlist_id = $2 AND song_id = $3',
+        [i + 1, playlistId, songIds[i]]
+      );
+    }
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error reordering songs:', error);
+    res.status(500).json({ success: false, error: 'failed to reorder songs' });
   }
 });
 
@@ -2287,28 +2952,146 @@ app.post('/api/visitor/increment', async (req, res) => {
   }
 });
 
-// Automatically add audio_url column on server start
+// Automatically add audio_url and image_url columns on server start
 (async () => {
   try {
-    // First check if column exists
-    const columnCheck = await db.query(`
+    // Add audio_url column to songs
+    const audioColumnCheck = await db.query(`
       SELECT column_name 
       FROM information_schema.columns 
       WHERE table_name='songs' AND column_name='audio_url';
     `);
     
-    if (columnCheck.rows.length === 0) {
+    if (audioColumnCheck.rows.length === 0) {
       console.log('Adding audio_url column to songs table...');
-      await db.query(`
-        ALTER TABLE songs 
-        ADD COLUMN audio_url TEXT;
-      `);
+      await db.query(`ALTER TABLE songs ADD COLUMN audio_url TEXT;`);
       console.log('✓ audio_url column added to songs table');
     } else {
       console.log('✓ audio_url column already exists');
     }
+    
+    // Add image_url column to shows
+    const showsImageColumnCheck = await db.query(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name='shows' AND column_name='image_url';
+    `);
+    
+    if (showsImageColumnCheck.rows.length === 0) {
+      console.log('Adding image_url column to shows table...');
+      await db.query(`ALTER TABLE shows ADD COLUMN image_url TEXT;`);
+      console.log('✓ image_url column added to shows table');
+    } else {
+      console.log('✓ image_url column already exists in shows table');
+    }
+    
+    // Add location column to shows
+    const locationColumnCheck = await db.query(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name='shows' AND column_name='location';
+    `);
+    
+    if (locationColumnCheck.rows.length === 0) {
+      console.log('Adding location column to shows table...');
+      await db.query(`ALTER TABLE shows ADD COLUMN location TEXT;`);
+      console.log('✓ location column added to shows table');
+    } else {
+      console.log('✓ location column already exists in shows table');
+    }
+    
+    // Add image_url column to merch
+    const merchImageColumnCheck = await db.query(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name='merch' AND column_name='image_url';
+    `);
+    
+    if (merchImageColumnCheck.rows.length === 0) {
+      console.log('Adding image_url column to merch table...');
+      await db.query(`ALTER TABLE merch ADD COLUMN image_url TEXT;`);
+      console.log('✓ image_url column added to merch table');
+    } else {
+      console.log('✓ image_url column already exists in merch table');
+    }
+    
+    // Add lyrics column to songs
+    const lyricsColumnCheck = await db.query(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name='songs' AND column_name='lyrics';
+    `);
+    
+    if (lyricsColumnCheck.rows.length === 0) {
+      console.log('Adding lyrics column to songs table...');
+      await db.query(`ALTER TABLE songs ADD COLUMN lyrics TEXT;`);
+      console.log('✓ lyrics column added to songs table');
+    } else {
+      console.log('✓ lyrics column already exists in songs table');
+    }
+    
+    // Create playlists table if it doesn't exist
+    const playlistsTableCheck = await db.query(`
+      SELECT table_name 
+      FROM information_schema.tables 
+      WHERE table_name='playlists';
+    `);
+    
+    if (playlistsTableCheck.rows.length === 0) {
+      console.log('Creating playlists table...');
+      await db.query(`
+        CREATE TABLE playlists (
+          id SERIAL PRIMARY KEY,
+          user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+          name TEXT NOT NULL,
+          image_url TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+      console.log('✓ playlists table created');
+    } else {
+      console.log('✓ playlists table already exists');
+    }
+    
+    // Create playlist_songs junction table if it doesn't exist
+    const playlistSongsTableCheck = await db.query(`
+      SELECT table_name 
+      FROM information_schema.tables 
+      WHERE table_name='playlist_songs';
+    `);
+    
+    if (playlistSongsTableCheck.rows.length === 0) {
+      console.log('Creating playlist_songs table...');
+      await db.query(`
+        CREATE TABLE playlist_songs (
+          id SERIAL PRIMARY KEY,
+          playlist_id INTEGER REFERENCES playlists(id) ON DELETE CASCADE,
+          song_id INTEGER REFERENCES songs(id) ON DELETE CASCADE,
+          position INTEGER NOT NULL,
+          UNIQUE(playlist_id, song_id)
+        );
+      `);
+      console.log('✓ playlist_songs table created');
+    } else {
+      console.log('✓ playlist_songs table already exists');
+    }
+    
+    // Add is_public column to playlists if it doesn't exist
+    const isPublicColumnCheck = await db.query(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name='playlists' AND column_name='is_public';
+    `);
+    
+    if (isPublicColumnCheck.rows.length === 0) {
+      console.log('Adding is_public column to playlists table...');
+      await db.query(`ALTER TABLE playlists ADD COLUMN is_public BOOLEAN DEFAULT false;`);
+      console.log('✓ is_public column added to playlists table');
+    } else {
+      console.log('✓ is_public column already exists in playlists table');
+    }
   } catch (error) {
-    console.error('❌ Error checking/adding audio_url column:', error.message);
+    console.error('❌ Error checking/adding columns:', error.message);
     console.error('Full error:', error);
   }
 })();

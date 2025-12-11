@@ -361,6 +361,65 @@ h1 {
   gap: 1.2rem;
 }
 
+/* Lyrics Modal */
+.lyrics-textarea {
+  width: 100%;
+  min-height: 400px;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(63, 130, 157, 0.3);
+  border-radius: 8px;
+  color: #e0e0e0;
+  font-size: 1rem;
+  font-family: inherit;
+  line-height: 1.8;
+  resize: vertical;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.lyrics-textarea:focus {
+  outline: none;
+  border-color: #3F829D;
+  box-shadow: 0 0 8px rgba(63, 130, 157, 0.3);
+}
+
+.lyrics-display {
+  padding: 1.5rem;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  border: 1px solid rgba(63, 130, 157, 0.2);
+}
+
+.admin-mode-toggle {
+  padding: 0.5rem 1rem;
+  background: rgba(63, 130, 157, 0.1);
+  border: 1px solid rgba(63, 130, 157, 0.3);
+  border-radius: 6px;
+  color: rgba(63, 130, 157, 0.8);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-family: inherit;
+}
+
+.admin-mode-toggle:hover {
+  background: rgba(63, 130, 157, 0.2);
+  border-color: rgba(63, 130, 157, 0.5);
+  color: #3F829D;
+  box-shadow: 0 0 10px rgba(63, 130, 157, 0.3);
+}
+
+.admin-mode-toggle.admin-mode-active {
+  background: rgba(63, 130, 157, 0.3);
+  border-color: #3F829D;
+  color: #3F829D;
+  box-shadow: 0 0 15px rgba(63, 130, 157, 0.5);
+}
+
 .profile-icon-container {
   position: relative;
   flex-shrink: 0;
@@ -999,6 +1058,104 @@ h1 {
 .song-admin-add {
   margin-top: 1rem;
   text-align: right;
+}
+
+/* Inline Edit Forms */
+.inline-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(63, 130, 157, 0.3);
+  border-radius: 10px;
+  margin-top: 0.5rem;
+  animation: slideDown 0.3s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.inline-edit-inputs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.inline-edit-input {
+  flex: 1;
+  min-width: 150px;
+  padding: 0.6rem 0.8rem;
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(63, 130, 157, 0.3);
+  border-radius: 6px;
+  color: #e0e0e0;
+  font-size: 0.9rem;
+  font-family: inherit;
+  letter-spacing: 0.5px;
+  transition: all 0.3s ease;
+  outline: none;
+}
+
+.inline-edit-input[type="file"] {
+  background: rgba(0, 0, 0, 0.5);
+  color: #e0e0e0;
+  cursor: pointer;
+}
+
+.inline-edit-input[type="file"]::file-selector-button {
+  background: rgba(63, 130, 157, 0.2);
+  border: 1px solid rgba(63, 130, 157, 0.4);
+  border-radius: 4px;
+  padding: 0.4rem 0.8rem;
+  color: #3F829D;
+  cursor: pointer;
+  margin-right: 0.5rem;
+  transition: all 0.3s ease;
+  font-family: inherit;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-size: 0.8rem;
+}
+
+.inline-edit-input[type="file"]::file-selector-button:hover {
+  background: rgba(63, 130, 157, 0.3);
+  border-color: rgba(63, 130, 157, 0.6);
+}
+
+.inline-edit-input::placeholder {
+  color: rgba(176, 176, 176, 0.5);
+  text-transform: uppercase;
+  font-size: 0.8rem;
+  letter-spacing: 1px;
+}
+
+.inline-edit-input:focus {
+  background: rgba(0, 0, 0, 0.7);
+  border-color: rgba(63, 130, 157, 0.6);
+  box-shadow: 0 0 10px rgba(63, 130, 157, 0.3);
+}
+
+.inline-edit-buttons {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.inline-edit-buttons .admin-btn {
+  padding: 0.5rem 1rem;
+  font-size: 0.85rem;
+  min-width: 80px;
 }
 
 @media (max-width: 768px) {

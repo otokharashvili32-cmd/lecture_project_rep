@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS shows (
   date DATE NOT NULL,
   city TEXT NOT NULL,
   venue TEXT,
+  location TEXT,
   price NUMERIC(10, 2),
   available_seats INT DEFAULT 30 CHECK (available_seats >= 0)
 );
