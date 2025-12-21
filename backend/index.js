@@ -1,5 +1,7 @@
 const express = require('express');
 const cors = require('cors');
+const https = require('https');
+const http = require('http');
 require('dotenv').config();
 const db = require('./db');
 const cloudinary = require('cloudinary').v2;
@@ -412,9 +414,9 @@ app.post('/api/shows/:showId/purchase', async (req, res) => {
   const ticketQuantity = Math.max(1, Math.min(4, parseInt(quantity, 10) || 1));
 
   try {
-    // Check available seats
+    // Check available seats and get show data (we need the date for n8n)
     const showResult = await db.query(
-      'SELECT available_seats FROM shows WHERE id = $1',
+      'SELECT available_seats, date FROM shows WHERE id = $1',
       [showId]
     );
 
@@ -426,6 +428,7 @@ app.post('/api/shows/:showId/purchase', async (req, res) => {
     }
 
     const availableSeats = showResult.rows[0].available_seats;
+    const showDate = showResult.rows[0].date;
 
     if (availableSeats <= 0) {
       return res.status(400).json({
@@ -446,6 +449,73 @@ app.post('/api/shows/:showId/purchase', async (req, res) => {
       'UPDATE shows SET available_seats = available_seats - $1 WHERE id = $2',
       [ticketQuantity, showId]
     );
+
+    // Save purchase to user_show_purchases table
+    await db.query(
+      'INSERT INTO user_show_purchases (user_id, show_id) VALUES ($1, $2) ON CONFLICT (user_id, show_id) DO NOTHING',
+      [userId, showId]
+    );
+
+    // Get user email for n8n webhook
+    const userResult = await db.query(
+      'SELECT email FROM users WHERE id = $1',
+      [userId]
+    );
+
+    const userEmail = userResult.rows[0]?.email;
+
+    // Call n8n webhook asynchronously (don't wait for response - this won't slow down the purchase)
+    if (process.env.N8N_WEBHOOK_URL && userEmail) {
+      // Use setImmediate to make this non-blocking
+      setImmediate(() => {
+        try {
+          const webhookPayload = {
+            userId,
+            userEmail,
+            showId,
+            showDate: showDate.toISOString().split('T')[0], // Format: YYYY-MM-DD
+            quantity: ticketQuantity,
+            purchasedAt: new Date().toISOString()
+          };
+
+          const webhookUrl = new URL(process.env.N8N_WEBHOOK_URL);
+          const isHttps = webhookUrl.protocol === 'https:';
+          const httpModule = isHttps ? https : http;
+          
+          const postData = JSON.stringify(webhookPayload);
+          
+          const options = {
+            hostname: webhookUrl.hostname,
+            port: webhookUrl.port || (isHttps ? 443 : 80),
+            path: webhookUrl.pathname + webhookUrl.search,
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Content-Length': Buffer.byteLength(postData)
+            }
+          };
+
+          const req = httpModule.request(options, (res) => {
+            if (res.statusCode >= 200 && res.statusCode < 300) {
+              console.log('n8n webhook called successfully for ticket purchase');
+            } else {
+              console.error('n8n webhook error:', res.statusCode, res.statusMessage);
+            }
+          });
+
+          req.on('error', (error) => {
+            // Don't fail the purchase if webhook fails
+            console.error('n8n webhook error:', error.message);
+          });
+
+          req.write(postData);
+          req.end();
+        } catch (error) {
+          // Don't fail the purchase if webhook fails
+          console.error('n8n webhook error:', error.message);
+        }
+      });
+    }
 
     return res.json({ success: true });
   } catch (error) {
